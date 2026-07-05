@@ -1,0 +1,21 @@
+# PlatformIO
+firmware/.pio/
+firmware/.pioenvs/
+firmware/.piolibdeps/
+
+# VS Code
+.vscode/
+
+# KiCad
+hardware/**/*.bak
+hardware/**/*-backups/
+hardware/**/*.lck
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp files
+*.tmp
+*.log
