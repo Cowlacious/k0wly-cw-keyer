@@ -8,7 +8,9 @@
 A full-featured two-way CW (Morse code) keyer built on the LilyGO T-Display S3 AMOLED board, featuring peer-to-peer WiFi communication via ESP-NOW, real-time Morse decoding, and a beautiful 1.91" AMOLED display.
 
 **Designed and built by K0WLY — Saratoga Springs, Utah — Grid DN40**
+![K0WLY CW Keyer — Top View](images/keyer_top.jpg)
 
+![K0WLY CW Keyer — System View](images/keyer_system.jpg)
 ---
 
 ## Features
@@ -139,7 +141,7 @@ lib_deps =
 ├─────────────────────────────────────────────────────────────────────┤
 │ POT: WPM                                                            │
 │ 20 WPM                                                              │  ← Status area
-│ SEARCHING...                                                        │
+│ SEARCHING...                                                        
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -211,7 +213,7 @@ k0wly-cw-keyer/
 **Documentation:** Licensed under
 [Creative Commons Attribution 4.0 International (CC BY 4.0)](LICENSE-DOCS).
 
-Copyright © 2025 K0WLY (Carl Cowley) — Saratoga Springs, Utah
+Copyright © 2026 K0WLY (Carl Cowley) — Saratoga Springs, Utah
 
 Attribution to **K0WLY** must be retained on all copies and derivatives.
 
