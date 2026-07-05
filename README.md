@@ -27,6 +27,7 @@ A full-featured two-way CW (Morse code) keyer built on the LilyGO T-Display S3 A
 - **Non-volatile settings** — survives power cycles
 - **Single pot** with mode cycling for all parameter adjustments
 - **Frame buffer display** — instantaneous screen updates, no glitch
+- **Radio keying output** via PC817 optocoupler — fully isolated, compatible with most transceivers
 
 ---
 
