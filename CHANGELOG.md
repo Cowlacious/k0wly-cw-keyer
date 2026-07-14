@@ -6,7 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.0.0] — 2025 — Initial Release
+## [1.1.0] — 2026 — Word Gap and Display Updates
+
+### Added
+- **Word gap spacing** — adjustable word space insertion (OFF or 4–9 dits threshold)
+  - GAP parameter added to pot mode cycle: WPM → FREQ → DELAY → VOL → GAP
+  - First quarter of pot = OFF, remainder maps to 4–9 dit threshold
+  - Spaces inserted on TX and RX lines when silence exceeds threshold
+  - Saved to NVS with all other settings
+- **K0WLY callsign** now displayed in status area bottom right (scale 2)
+
+### Changed
+- Header bar updated: K0WLY callsign removed from header to make room for GAP indicator
+- GAP indicator shows GAP:OFF or GAP:4 through GAP:9, highlighted green when active
+- NVS settings version bumped to 2 — boards reload defaults cleanly on first boot
+
+### Fixed
+- Header layout more compact to accommodate all five parameter indicators
+
+---
+
+## [1.0.0] — 2026 — Initial Release
 
 ### Hardware
 - LilyGO T-Display S3 AMOLED (ESP32-S3R8) platform
@@ -31,12 +51,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Straight key mode via SPST hardware switch (GPIO15)
 - Paddle reverse via PBNO momentary button (GPIO16)
 - Independent sidetone frequency — each unit sets its own pitch
-
-### Display
-- Header bar: callsign, WPM, Hz, DLY, VOL, SK/IAM, SOLO/DUAL
-- TX line: outgoing decoded characters (green, scrolls left)
-- RX line: incoming decoded characters (cyan, scrolls left)
-- Status area: active pot mode, current value, peer MAC address
+- Radio keying output via PC817 optocoupler (GPIO12)
 
 ### Known Issues
 - None at initial release
