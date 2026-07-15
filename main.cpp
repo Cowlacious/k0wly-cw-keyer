@@ -1,6 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
+//  Version 1.2.0
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -106,17 +107,23 @@ bool potPickedUp[POT_MODE_COUNT]  = {true, true, true, true, true};
 
 // Edit mode — pot only changes values when in edit mode (long press to enter)
 bool potEditMode = false;
+uint8_t wpmEditStep = 0;  // 0=char speed, 1=Farnsworth speed (only used when potMode==POT_WPM)
 
 // Long press detection
 #define LONG_PRESS_MS       1000
 
 // ── Runtime state ─────────────────────────────────────────────────────────────
-volatile uint32_t ditLen_ms       = 60;    // 20 WPM default
+volatile uint32_t charDitLen_ms   = 60;    // character speed dit length (20 WPM default)
+volatile uint32_t gapDitLen_ms    = 60;    // gap speed dit length (Farnsworth, = char when off)
 volatile uint32_t localFreq       = 700;   // local sidetone Hz — each unit sets its own
 volatile uint32_t headCopyDelayMs = 0;     // incoming char display delay
 volatile uint8_t  wordGapDits     = 0;     // 0=off, 4-9 = word gap threshold in dits
 volatile bool     paddleReverse   = false;
 volatile bool     straightKey     = false; // false = iambic, true = straight key
+
+// Convenience: character WPM and Farnsworth effective WPM
+static inline uint32_t charWPM() { return 1200 / charDitLen_ms; }
+static inline uint32_t farnWPM() { return 1200 / gapDitLen_ms; }
 
 // ── Keyer state machine ───────────────────────────────────────────────────────
 typedef enum {
@@ -240,26 +247,26 @@ static void keyer_isr() {
 
     switch (keyerState) {
         case KEYER_IDLE:
-            morsePos = 0;  // always reset in idle — safe since CHAR_GAP already decoded
+            morsePos = 0;
             if (ditMemory) {
                 ditMemory = false;
                 dahMemory = false;
-                morsePos = 1;    // root → dit = position 1 (E)
+                morsePos = 1;
                 ledcSetup(LEDC_CHANNEL_LOCAL, localFreq, LEDC_RES_BITS);
                 ledcAttachPin(PIN_SIDETONE, LEDC_CHANNEL_LOCAL);
                 digitalWrite(PIN_KEY_OUT, HIGH);
                 ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
-                elementTimer = ditLen_ms;
+                elementTimer = charDitLen_ms;        // character speed
                 keyerState = KEYER_DIT;
             } else if (dahMemory) {
                 ditMemory = false;
                 dahMemory = false;
-                morsePos = 2;    // root → dah = position 2 (T)
+                morsePos = 2;
                 ledcSetup(LEDC_CHANNEL_LOCAL, localFreq, LEDC_RES_BITS);
                 ledcAttachPin(PIN_SIDETONE, LEDC_CHANNEL_LOCAL);
                 digitalWrite(PIN_KEY_OUT, HIGH);
                 ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
-                elementTimer = ditLen_ms * 3;
+                elementTimer = charDitLen_ms * 3;    // character speed
                 keyerState = KEYER_DAH;
             }
             break;
@@ -268,7 +275,7 @@ static void keyer_isr() {
             if (--elementTimer == 0) {
                 digitalWrite(PIN_KEY_OUT, LOW);
                 ledcWrite(LEDC_CHANNEL_LOCAL, 0);
-                elementTimer = ditLen_ms;
+                elementTimer = gapDitLen_ms;         // gap speed (Farnsworth)
                 keyerState = KEYER_DIT_GAP;
             }
             break;
@@ -277,24 +284,24 @@ static void keyer_isr() {
             if (--elementTimer == 0) {
                 if (dahMemory) {
                     dahMemory = false;
-                    ditMemory = false;  // clear dit memory when starting dah
+                    ditMemory = false;
                     morsePos = morsePos * 2 + 2;
                     if (morsePos >= sizeof(morseTree)) morsePos = 0;
                     digitalWrite(PIN_KEY_OUT, HIGH);
                     ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
-                    elementTimer = ditLen_ms * 3;
+                    elementTimer = charDitLen_ms * 3; // character speed
                     keyerState = KEYER_DAH;
                 } else if (ditMemory) {
                     ditMemory = false;
-                    dahMemory = false;  // clear dah memory when starting dit
+                    dahMemory = false;
                     morsePos = morsePos * 2 + 1;
                     if (morsePos >= sizeof(morseTree)) morsePos = 0;
                     digitalWrite(PIN_KEY_OUT, HIGH);
                     ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
-                    elementTimer = ditLen_ms;
+                    elementTimer = charDitLen_ms;     // character speed
                     keyerState = KEYER_DIT;
                 } else {
-                    elementTimer = ditLen_ms * 2;
+                    elementTimer = gapDitLen_ms * 2;  // gap speed (Farnsworth)
                     keyerState = KEYER_CHAR_GAP;
                 }
             }
@@ -304,7 +311,7 @@ static void keyer_isr() {
             if (--elementTimer == 0) {
                 digitalWrite(PIN_KEY_OUT, LOW);
                 ledcWrite(LEDC_CHANNEL_LOCAL, 0);
-                elementTimer = ditLen_ms;
+                elementTimer = gapDitLen_ms;          // gap speed (Farnsworth)
                 keyerState = KEYER_DAH_GAP;
             }
             break;
@@ -313,24 +320,24 @@ static void keyer_isr() {
             if (--elementTimer == 0) {
                 if (ditMemory) {
                     ditMemory = false;
-                    dahMemory = false;  // clear dah memory when starting dit
+                    dahMemory = false;
                     morsePos = morsePos * 2 + 1;
                     if (morsePos >= sizeof(morseTree)) morsePos = 0;
                     digitalWrite(PIN_KEY_OUT, HIGH);
                     ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
-                    elementTimer = ditLen_ms;
+                    elementTimer = charDitLen_ms;      // character speed
                     keyerState = KEYER_DIT;
                 } else if (dahMemory) {
                     dahMemory = false;
-                    ditMemory = false;  // clear dit memory when starting dah
+                    ditMemory = false;
                     morsePos = morsePos * 2 + 2;
                     if (morsePos >= sizeof(morseTree)) morsePos = 0;
                     digitalWrite(PIN_KEY_OUT, HIGH);
                     ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
-                    elementTimer = ditLen_ms * 3;
+                    elementTimer = charDitLen_ms * 3;  // character speed
                     keyerState = KEYER_DAH;
                 } else {
-                    elementTimer = ditLen_ms * 2;
+                    elementTimer = gapDitLen_ms * 2;   // gap speed (Farnsworth)
                     keyerState = KEYER_CHAR_GAP;
                 }
             }
@@ -348,11 +355,8 @@ static void keyer_isr() {
                     outBufHead = nextHead;
                 }
                 morsePos = 0;
-                // If word gap is enabled, start word gap timer
-                // Character gap was 3 dits, word gap needs wordGapDits total
-                // so wait (wordGapDits - 3) more dits
                 if (wordGapDits >= 4) {
-                    elementTimer = ditLen_ms * (wordGapDits - 3);
+                    elementTimer = gapDitLen_ms * (wordGapDits - 3); // gap speed
                     keyerState = KEYER_WORD_GAP;
                 } else {
                     keyerState = KEYER_IDLE;
@@ -361,13 +365,11 @@ static void keyer_isr() {
             break;
 
         case KEYER_WORD_GAP:
-            // Check if paddle pressed — cancel word gap
             if (ditMemory || dahMemory) {
                 keyerState = KEYER_IDLE;
                 break;
             }
             if (--elementTimer == 0) {
-                // Silence lasted long enough — emit a space
                 uint8_t nextHead = (outBufHead + 1) % OUT_BUF_SIZE;
                 if (nextHead != outBufTail) {
                     outBuf[outBufHead] = ' ';
@@ -686,8 +688,12 @@ void drawHeader() {
     uint16_t x = 4;
     char tmp[16];
 
-    // WPM
-    snprintf(tmp, sizeof(tmp), "%luWPM", 1200 / ditLen_ms);
+    // WPM — show char/farn when Farnsworth active, just WPM when equal
+    if (charDitLen_ms == gapDitLen_ms) {
+        snprintf(tmp, sizeof(tmp), "%luWPM", charWPM());
+    } else {
+        snprintf(tmp, sizeof(tmp), "%lu/%lu", charWPM(), farnWPM());
+    }
     uint16_t wpmColor = (potMode == POT_WPM) ? (potEditMode ? C_YELLOW : swapBytes(0x8400)) : C_WHITE;
     drawString(x, 8, tmp, wpmColor, C_DARKGRAY, 2);
     x += strlen(tmp) * 12 + 8;
@@ -764,9 +770,20 @@ void drawStatusArea() {
 
     switch (potMode) {
         case POT_WPM:
-            modeLabel = "POT: WPM";
             modeColor = C_YELLOW;
-            snprintf(valStr, sizeof(valStr), "%lu WPM", 1200 / ditLen_ms);
+            if (!potEditMode) {
+                modeLabel = "POT: WPM";
+                if (charDitLen_ms == gapDitLen_ms)
+                    snprintf(valStr, sizeof(valStr), "%lu WPM", charWPM());
+                else
+                    snprintf(valStr, sizeof(valStr), "%lu / %lu WPM", charWPM(), farnWPM());
+            } else if (wpmEditStep == 0) {
+                modeLabel = "CHAR SPEED";
+                snprintf(valStr, sizeof(valStr), "%lu WPM", charWPM());
+            } else {
+                modeLabel = "FARNSWORTH";
+                snprintf(valStr, sizeof(valStr), "%lu WPM", farnWPM());
+            }
             break;
         case POT_FREQ:
             modeLabel = "POT: FREQ";
@@ -943,21 +960,24 @@ static uint32_t readDelay() {
 
 static uint8_t readGap() {
     int raw = readPotSmoothed();
-    // Maps 0-4095 to 0-9
-    // 0 = off, 4-9 = threshold in dits
-    // First quarter of pot = off, rest = 4-9
-    if (raw < 512) return 0;  // off
-    return (uint8_t)(4 + ((raw - 512) / 4095.0f) * (GAP_MAX - 4));
+    // Bottom 20% of pot = OFF (clear dead zone, easy to find)
+    // Top 80% maps to 4-9 dits in integer steps
+    if (raw < 820) return 0;  // OFF — bottom 20%
+    // Map 820-4095 to 4-9 (6 steps)
+    uint8_t val = (uint8_t)(4 + ((raw - 820) / (float)(4095 - 820)) * (GAP_MAX - 4));
+    if (val > GAP_MAX) val = GAP_MAX;
+    return val;
 }
 
 // ── NVS save/load ─────────────────────────────────────────────────────────────
 void saveSettings() {
     prefs.begin("keyer", false);
-    prefs.putUInt("ditLen",  ditLen_ms);
-    prefs.putUInt("freq",    localFreq);
-    prefs.putUInt("delay",   headCopyDelayMs);
-    prefs.putUChar("vol",    sidetone_duty);
-    prefs.putUChar("gap",    wordGapDits);
+    prefs.putUInt("charDit",  charDitLen_ms);
+    prefs.putUInt("gapDit",   gapDitLen_ms);
+    prefs.putUInt("freq",     localFreq);
+    prefs.putUInt("delay",    headCopyDelayMs);
+    prefs.putUChar("vol",     sidetone_duty);
+    prefs.putUChar("gap",     wordGapDits);
     prefs.end();
 }
 
@@ -966,28 +986,31 @@ void loadSettings() {
     uint8_t ver = prefs.getUChar("ver", 0);
     prefs.end();
 
-    if (ver < 2) {
-        ditLen_ms       = 60;
+    if (ver < 3) {
+        charDitLen_ms   = 60;   // 20 WPM
+        gapDitLen_ms    = 60;   // no Farnsworth
         localFreq       = 700;
         headCopyDelayMs = 0;
         sidetone_duty   = 128;
         wordGapDits     = 0;
         prefs.begin("keyer", false);
-        prefs.putUChar("ver",    2);
-        prefs.putUInt ("ditLen", ditLen_ms);
-        prefs.putUInt ("freq",   localFreq);
-        prefs.putUInt ("delay",  headCopyDelayMs);
-        prefs.putUChar("vol",    sidetone_duty);
-        prefs.putUChar("gap",    wordGapDits);
+        prefs.putUChar("ver",     3);
+        prefs.putUInt ("charDit", charDitLen_ms);
+        prefs.putUInt ("gapDit",  gapDitLen_ms);
+        prefs.putUInt ("freq",    localFreq);
+        prefs.putUInt ("delay",   headCopyDelayMs);
+        prefs.putUChar("vol",     sidetone_duty);
+        prefs.putUChar("gap",     wordGapDits);
         prefs.end();
         Serial.println("NVS: defaults written");
     } else {
         prefs.begin("keyer", true);
-        ditLen_ms       = prefs.getUInt ("ditLen", 60);
-        localFreq       = prefs.getUInt ("freq",   700);
-        headCopyDelayMs = prefs.getUInt ("delay",  0);
-        sidetone_duty   = prefs.getUChar("vol",    128);
-        wordGapDits     = prefs.getUChar("gap",    0);
+        charDitLen_ms   = prefs.getUInt ("charDit", 60);
+        gapDitLen_ms    = prefs.getUInt ("gapDit",  60);
+        localFreq       = prefs.getUInt ("freq",    700);
+        headCopyDelayMs = prefs.getUInt ("delay",   0);
+        sidetone_duty   = prefs.getUChar("vol",     128);
+        wordGapDits     = prefs.getUChar("gap",     0);
         prefs.end();
         Serial.println("NVS: settings loaded");
     }
@@ -1170,15 +1193,24 @@ void loop() {
         if (lastModeBtn == LOW && cur == HIGH) {
             // Button released
             if (!longFired) {
-                // Short press — cycle to next mode, exit edit mode
-                if (potEditMode) potEditMode = false;
-                potPickupRaw[potMode] = readPotSmoothed();
-                potMode = (PotMode)((potMode + 1) % POT_MODE_COUNT);
-                // Sync pickup for new mode too
-                potPickupRaw[potMode] = readPotSmoothed();
-                potPickedUp[potMode]  = true;
-                drawStatusArea();
-                drawHeader();
+                if (potEditMode && potMode == POT_WPM && wpmEditStep == 0) {
+                    // Short press in WPM step 1 — advance to Farnsworth step
+                    wpmEditStep = 1;
+                    potPickupRaw[potMode] = readPotSmoothed();
+                    potPickedUp[potMode]  = true;
+                    drawStatusArea();
+                    drawHeader();
+                } else {
+                    // Short press — exit edit mode, cycle to next mode
+                    potEditMode  = false;
+                    wpmEditStep  = 0;
+                    potPickupRaw[potMode] = readPotSmoothed();
+                    potMode = (PotMode)((potMode + 1) % POT_MODE_COUNT);
+                    potPickupRaw[potMode] = readPotSmoothed();
+                    potPickedUp[potMode]  = true;
+                    drawStatusArea();
+                    drawHeader();
+                }
             }
         }
 
@@ -1193,10 +1225,28 @@ void loop() {
 
         switch (potMode) {
             case POT_WPM: {
-                uint32_t wpm = WPM_MIN + (uint32_t)((rawNow / 4095.0f) * (WPM_MAX - WPM_MIN));
-                if (wpm < 1) wpm = 1;
-                uint32_t newDit = 1200 / wpm;
-                if (newDit != ditLen_ms) { ditLen_ms = newDit; changed = true; }
+                if (wpmEditStep == 0) {
+                    // Step 1: character speed
+                    uint32_t wpm = WPM_MIN + (uint32_t)((rawNow / 4095.0f) * (WPM_MAX - WPM_MIN));
+                    if (wpm < 1) wpm = 1;
+                    uint32_t newDit = 1200 / wpm;
+                    if (newDit != charDitLen_ms) {
+                        charDitLen_ms = newDit;
+                        // Keep Farnsworth <= character speed
+                        if (gapDitLen_ms < charDitLen_ms) gapDitLen_ms = charDitLen_ms;
+                        changed = true;
+                    }
+                } else {
+                    // Step 2: Farnsworth effective speed (4 WPM min, capped at char speed)
+                    uint32_t farnMax = charWPM();
+                    uint32_t farnMin = 4;
+                    if (farnMax < farnMin) farnMax = farnMin;
+                    uint32_t wpm = farnMin + (uint32_t)((rawNow / 4095.0f) * (farnMax - farnMin));
+                    if (wpm < farnMin) wpm = farnMin;
+                    if (wpm > farnMax) wpm = farnMax;
+                    uint32_t newGapDit = 1200 / wpm;
+                    if (newGapDit != gapDitLen_ms) { gapDitLen_ms = newGapDit; changed = true; }
+                }
                 break;
             }
             case POT_FREQ: {
