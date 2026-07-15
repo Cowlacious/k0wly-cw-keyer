@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [1.2.0] — 2026 — Farnsworth Spacing
 
 ### Added
+- **Firmware version** displayed in status area bottom right (K0WLY v1.2) — `FW_VERSION` define makes future updates a one-line change
 - **Farnsworth spacing** — two-speed CW for learning
   - Characters sent at full character speed (fast, sounds like real code)
   - Gaps between characters and words stretched to a slower effective speed
