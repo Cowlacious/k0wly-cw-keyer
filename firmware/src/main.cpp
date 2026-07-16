@@ -697,25 +697,25 @@ void drawHeader() {
     } else {
         snprintf(tmp, sizeof(tmp), "%lu/%lu", charWPM(), farnWPM());
     }
-    uint16_t wpmColor = (potMode == POT_WPM) ? (potEditMode ? C_YELLOW : swapBytes(0x8400)) : C_WHITE;
+    uint16_t wpmColor = (potMode == POT_WPM) ? C_YELLOW : C_WHITE;
     drawString(x, 8, tmp, wpmColor, C_DARKGRAY, 2);
     x += strlen(tmp) * 12 + 8;
 
     // FREQ
     snprintf(tmp, sizeof(tmp), "%luHz", localFreq);
-    uint16_t freqColor = (potMode == POT_FREQ) ? (potEditMode ? C_CYAN : swapBytes(0x0210)) : C_WHITE;
+    uint16_t freqColor = (potMode == POT_FREQ) ? C_CYAN : C_WHITE;
     drawString(x, 8, tmp, freqColor, C_DARKGRAY, 2);
     x += strlen(tmp) * 12 + 8;
 
     // DELAY
     snprintf(tmp, sizeof(tmp), "DLY:%.1fs", headCopyDelayMs / 1000.0f);
-    uint16_t dlyColor = (potMode == POT_DELAY) ? (potEditMode ? C_ORANGE : swapBytes(0x4000)) : C_WHITE;
+    uint16_t dlyColor = (potMode == POT_DELAY) ? C_ORANGE : C_WHITE;
     drawString(x, 8, tmp, dlyColor, C_DARKGRAY, 2);
     x += strlen(tmp) * 12 + 8;
 
     // VOL
     snprintf(tmp, sizeof(tmp), "VOL:%d%%", (sidetone_duty * 100) / 200);
-    uint16_t volColor = (potMode == POT_VOL) ? (potEditMode ? C_MAGENTA : swapBytes(0x4010)) : C_WHITE;
+    uint16_t volColor = (potMode == POT_VOL) ? C_MAGENTA : C_WHITE;
     drawString(x, 8, tmp, volColor, C_DARKGRAY, 2);
     x += strlen(tmp) * 12 + 8;
 
@@ -725,7 +725,7 @@ void drawHeader() {
     } else {
         snprintf(tmp, sizeof(tmp), "GAP:%d", wordGapDits);
     }
-    uint16_t gapColor = (potMode == POT_GAP) ? (potEditMode ? swapBytes(0x07E0) : swapBytes(0x0300)) : C_WHITE;
+    uint16_t gapColor = (potMode == POT_GAP) ? C_GREEN : C_WHITE;
     drawString(x, 8, tmp, gapColor, C_DARKGRAY, 2);
 
     // SK/IAM — right side
