@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.2.0
+//  Version 1.2.1
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -69,7 +69,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.2"
+#define FW_VERSION "v1.2.1"
 
 // ── Pin definitions ──────────────────────────────────────────────────────────
 #define PIN_DIT         11
@@ -894,6 +894,7 @@ void drawUI() {
 static bool     remoteKeying    = false;
 static uint32_t remoteKeyEndMs  = 0;
 static uint32_t remoteGapEndMs  = 0;
+static uint32_t remoteInterGapMs = 60;  // estimated inter-element gap in ms
 static bool     remoteInGap     = false;
 
 void serviceRemoteElements() {
@@ -902,12 +903,12 @@ void serviceRemoteElements() {
     if (remoteKeying) {
         if (now >= remoteKeyEndMs) {
             // Element done — stop tone, start inter-element gap
-            ledcWrite(LEDC_CHANNEL_REMOTE, 0);
-            remoteKeying  = false;
-            remoteInGap   = true;
-            remoteGapEndMs = now + (remoteKeyEndMs - (remoteKeyEndMs - 1)); // 1ms gap min
-            // Use same dit length as received duration / 3 for dah, /1 for dit approximation
-            remoteGapEndMs = now + 10; // short gap between elements
+            ledcWrite(LEDC_CHANNEL_LOCAL, 0);
+            remoteKeying   = false;
+            remoteInGap    = true;
+            // Inter-element gap = same duration as a dit at the received speed
+            // We approximate from the element duration stored
+            remoteGapEndMs = now + remoteInterGapMs;
         }
         return;
     }
@@ -922,9 +923,15 @@ void serviceRemoteElements() {
     RemoteElement &el = elemBuf[elemTail];
     elemTail = (elemTail + 1) % ELEM_BUF_SIZE;
 
-    // Set frequency to our own local freq — each operator hears at their own pitch
-    ledcSetup(LEDC_CHANNEL_REMOTE, localFreq, LEDC_RES_BITS);
-    ledcWrite(LEDC_CHANNEL_REMOTE, sidetone_duty);
+    // Calculate inter-element gap from element duration
+    // dit = 1 unit, dah = 3 units, so dit = dah/3
+    // gap = 1 unit = dah/3 or dit itself
+    remoteInterGapMs = el.isDah ? (el.durationMs / 3) : el.durationMs;
+
+    // Play on local LEDC channel at our frequency
+    ledcSetup(LEDC_CHANNEL_LOCAL, localFreq, LEDC_RES_BITS);
+    ledcAttachPin(PIN_SIDETONE, LEDC_CHANNEL_LOCAL);
+    ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
     remoteKeying   = true;
     remoteKeyEndMs = now + el.durationMs;
 }
