@@ -6,6 +6,7 @@
 [![Framework: Arduino](https://img.shields.io/badge/Framework-Arduino-teal)](https://www.arduino.cc/)
 
 A full-featured two-way CW (Morse code) keyer built on the LilyGO T-Display S3 AMOLED board, featuring peer-to-peer WiFi communication via ESP-NOW, real-time Morse decoding, and a beautiful 1.91" AMOLED display.
+A video of the keyer and how it works can be found here:  https://youtu.be/8L7SKNOl4is?si=q5VC2bDrw9pgBQYe
 
 **Designed and built by K0WLY — Saratoga Springs, Utah — Grid DN40**
 
