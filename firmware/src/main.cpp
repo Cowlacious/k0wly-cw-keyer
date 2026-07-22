@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.2.1
+//  Version 1.2.2
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -69,7 +69,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.2.1"
+#define FW_VERSION "v1.2.2"
 
 // ── Pin definitions ──────────────────────────────────────────────────────────
 #define PIN_DIT         11
@@ -924,8 +924,8 @@ void serviceRemoteElements() {
     elemTail = (elemTail + 1) % ELEM_BUF_SIZE;
 
     // Calculate inter-element gap from element duration
-    // dit = 1 unit, dah = 3 units, so dit = dah/3
-    // gap = 1 unit = dah/3 or dit itself
+    // dit duration = charDitLen_ms on sender, dah = 3 * charDitLen_ms
+    // So gap (1 dit) = durationMs for dit, or durationMs/3 for dah
     remoteInterGapMs = el.isDah ? (el.durationMs / 3) : el.durationMs;
 
     // Play on local LEDC channel at our frequency
@@ -1145,7 +1145,6 @@ static bool     lastPeerFound     = false;
 
 // Track keyer state for element transmission
 static KeyerState lastKeyerState  = KEYER_IDLE;
-static uint32_t   elementStartMs  = 0;
 
 void loop() {
     uint32_t now = millis();
@@ -1324,14 +1323,15 @@ void loop() {
     // Element start: IDLE/GAP → DIT or DAH
     if ((lastKeyerState == KEYER_IDLE || lastKeyerState == KEYER_DIT_GAP || lastKeyerState == KEYER_DAH_GAP)
         && (curState == KEYER_DIT || curState == KEYER_DAH)) {
-        elementStartMs = now;
+        // Nothing needed here — duration calculated from charDitLen_ms
     }
 
-    // Element end: DIT/DAH → gap
+    // Element end: DIT/DAH → gap — send theoretical duration based on keyer timing
     if ((lastKeyerState == KEYER_DIT && curState == KEYER_DIT_GAP) ||
         (lastKeyerState == KEYER_DAH && curState == KEYER_DAH_GAP)) {
-        uint32_t duration = now - elementStartMs;
         bool isDah = (lastKeyerState == KEYER_DAH);
+        // Use theoretical duration from keyer timing — more accurate than measuring
+        uint32_t duration = isDah ? (charDitLen_ms * 3) : charDitLen_ms;
         sendElement(isDah, duration);
     }
 

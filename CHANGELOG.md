@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.1] — 2026 — Bug Fix: Receive Audio Not Playing
+
+### Fixed
+- **Incoming CW audio** was completely silent on receiving unit
+  - LEDC channel 1 (remote) was never attached to PIN_SIDETONE — fixed by using LEDC channel 0 (local) for both local and remote playback since they never overlap
+  - Inter-element gap between received elements corrected from hardcoded 10ms to proper timing
+
+---
+
+## [1.2.2] — 2026 — Bug Fix: Received Audio Playback
+
+### Fixed
+- **Incoming CW audio** now plays at the sender's speed instead of the receiver's speed
+  - Element durations are now transmitted as theoretical values (charDitLen_ms) rather than measured wall-clock time, eliminating timing jitter from the Core 0 loop
+  - Inter-element gap on receiver correctly derived from received element duration
+  - Audio no longer continues playing on receiver after sender has stopped
+- Removed unused `elementStartMs` variable
+
+---
+
 ## [1.2.0] — 2026 — Farnsworth Spacing
 
 ### Added
