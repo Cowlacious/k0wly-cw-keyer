@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.2.2
+//  Version 1.2.3
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -69,7 +69,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.2.2"
+#define FW_VERSION "v1.2.3"
 
 // ── Pin definitions ──────────────────────────────────────────────────────────
 #define PIN_DIT         11
@@ -95,6 +95,7 @@ volatile uint8_t sidetone_duty = 128;  // ~50% default volume
 #define FREQ_MAX        900
 #define DELAY_MIN_MS    0
 #define DELAY_MAX_MS    3000
+#define DELAY_AO_MODE   0xFFFFFFFF  // sentinel value meaning Audio Only mode
 #define GAP_MIN         0    // 0 = off
 #define GAP_MAX         9    // max word gap threshold in dits
 
@@ -421,6 +422,8 @@ static void onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
     }
 
     if (pkt.type == PKT_CHAR) {
+        // In Audio Only mode — don't queue character for display
+        if (headCopyDelayMs == DELAY_AO_MODE) return;
         // Queue char with delay
         uint8_t next = (incomingHead + 1) % INCOMING_BUF_SIZE;
         if (next != incomingTail) {
@@ -708,7 +711,11 @@ void drawHeader() {
     x += strlen(tmp) * 12 + 8;
 
     // DELAY
-    snprintf(tmp, sizeof(tmp), "DLY:%.1fs", headCopyDelayMs / 1000.0f);
+    if (headCopyDelayMs == DELAY_AO_MODE) {
+        snprintf(tmp, sizeof(tmp), "DLY:AO");
+    } else {
+        snprintf(tmp, sizeof(tmp), "DLY:%.1fs", headCopyDelayMs / 1000.0f);
+    }
     uint16_t dlyColor = (potMode == POT_DELAY) ? C_ORANGE : C_WHITE;
     drawString(x, 8, tmp, dlyColor, C_DARKGRAY, 2);
     x += strlen(tmp) * 12 + 8;
@@ -760,7 +767,12 @@ void drawTXLine() {
 
 void drawRXLine() {
     fillRect(0, RX_LINE_Y, SCR_W, BIG_CHAR_H, C_BLACK);
-    drawString(4, RX_LINE_Y, rxLine, C_CYAN, C_BLACK, BIG_SCALE);
+    if (headCopyDelayMs == DELAY_AO_MODE) {
+        // Show dim indicator instead of characters
+        drawString(4, RX_LINE_Y, "[Audio Only]", C_DARKGRAY, C_BLACK, BIG_SCALE);
+    } else {
+        drawString(4, RX_LINE_Y, rxLine, C_CYAN, C_BLACK, BIG_SCALE);
+    }
     flushBand(RX_LINE_Y, BIG_CHAR_H);
 }
 
@@ -796,7 +808,10 @@ void drawStatusArea() {
         case POT_DELAY:
             modeLabel = "POT: DELAY";
             modeColor = C_ORANGE;
-            snprintf(valStr, sizeof(valStr), "%.1f sec", headCopyDelayMs / 1000.0f);
+            if (headCopyDelayMs == DELAY_AO_MODE)
+                snprintf(valStr, sizeof(valStr), "AUDIO ONLY");
+            else
+                snprintf(valStr, sizeof(valStr), "%.1f sec", headCopyDelayMs / 1000.0f);
             break;
         case POT_VOL:
             modeLabel = "POT: VOLUME";
@@ -966,8 +981,11 @@ static uint8_t readVol() {
 }
 
 static uint32_t readDelay() {
-    int raw = analogRead(PIN_POT);
-    uint32_t ms = (uint32_t)((raw / 4095.0f) * DELAY_MAX_MS);
+    int raw = readPotSmoothed();
+    // Top 10% of pot = Audio Only mode (no text displayed)
+    if (raw > 3686) return DELAY_AO_MODE;
+    // Rest maps 0-3686 to 0-3000ms in 100ms steps
+    uint32_t ms = (uint32_t)((raw / 3686.0f) * DELAY_MAX_MS);
     return (ms / 100) * 100;
 }
 
@@ -1271,9 +1289,14 @@ void loop() {
                 break;
             }
             case POT_DELAY: {
-                uint32_t ms = (uint32_t)((rawNow / 4095.0f) * DELAY_MAX_MS);
-                uint32_t del = (ms / 100) * 100;
-                if (del != headCopyDelayMs) { headCopyDelayMs = del; changed = true; }
+                uint32_t del = readDelay();
+                if (del != headCopyDelayMs) {
+                    bool wasAO = (headCopyDelayMs == DELAY_AO_MODE);
+                    headCopyDelayMs = del;
+                    changed = true;
+                    // Redraw RX line if AO mode toggled on or off
+                    if (wasAO != (del == DELAY_AO_MODE)) drawRXLine();
+                }
                 break;
             }
             case POT_VOL: {
