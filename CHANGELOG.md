@@ -15,6 +15,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.3] — 2026 — Audio Only Mode
+
+### Added
+- **Audio Only (AO) mode** for head copy delay setting
+  - Turn pot to top 10% of range while in DELAY edit mode to enable
+  - Header shows `DLY:AO` when active
+  - Status area shows `AUDIO ONLY` as the value
+  - RX line shows `[Audio Only]` in dim text instead of decoded characters
+  - Incoming CW audio plays normally — only the text display is suppressed
+  - Perfect for operators who want pure audible head copy with no visual crutch
+
+---
+
 ## [1.2.2] — 2026 — Bug Fix: Received Audio Playback
 
 ### Fixed
