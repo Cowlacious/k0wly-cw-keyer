@@ -767,9 +767,8 @@ void drawTXLine() {
 
 void drawRXLine() {
     fillRect(0, RX_LINE_Y, SCR_W, BIG_CHAR_H, C_BLACK);
-    if (headCopyDelayMs == DELAY_AO_MODE) {
-        // Show dim indicator instead of characters
-        drawString(4, RX_LINE_Y, "[Audio Only]", C_DARKGRAY, C_BLACK, BIG_SCALE);
+    if ((uint32_t)headCopyDelayMs == (uint32_t)DELAY_AO_MODE) {
+        drawString(4, RX_LINE_Y, "[Audio Only]", swapBytes(0x8200), C_BLACK, BIG_SCALE);
     } else {
         drawString(4, RX_LINE_Y, rxLine, C_CYAN, C_BLACK, BIG_SCALE);
     }
@@ -1215,6 +1214,7 @@ void loop() {
                     potPickupRaw[potMode] = readPotSmoothed();
                     potPickedUp[potMode]  = true;
                 }
+                drawRXLine();   // update AO indicator if delay mode changed
                 drawStatusArea();
                 drawHeader();
             }
@@ -1238,6 +1238,7 @@ void loop() {
                     potMode = (PotMode)((potMode + 1) % POT_MODE_COUNT);
                     potPickupRaw[potMode] = readPotSmoothed();
                     potPickedUp[potMode]  = true;
+                    drawRXLine();   // update AO indicator if delay mode changed
                     drawStatusArea();
                     drawHeader();
                 }
@@ -1291,11 +1292,9 @@ void loop() {
             case POT_DELAY: {
                 uint32_t del = readDelay();
                 if (del != headCopyDelayMs) {
-                    bool wasAO = (headCopyDelayMs == DELAY_AO_MODE);
                     headCopyDelayMs = del;
                     changed = true;
-                    // Redraw RX line if AO mode toggled on or off
-                    if (wasAO != (del == DELAY_AO_MODE)) drawRXLine();
+                    drawRXLine();
                 }
                 break;
             }
