@@ -15,6 +15,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.0] — 2026 — WiFi File Playback
+
+### Added
+- **WiFi Access Point** — keyer creates a unique hotspot (K0WLY-XXXX) on boot
+  - Connect any phone, tablet, or computer — no password required
+  - Browse to http://192.168.4.1 for the file management web page
+  - Works on Android, iPhone, Windows, Mac, and Linux
+- **Text file playback** — upload .txt files and play them as CW practice
+  - Upload files from phone browser — no computer or cables needed
+  - Files stored on-board in LittleFS flash filesystem
+  - Multiple files supported — tap Play next to any file
+  - Delete files from the web page
+- **Synchronized TX display** — characters appear as they sound, not ahead
+  - Each character displays at the character gap (after all elements played)
+  - Word spaces display when the word gap silence plays
+  - TX line clears automatically when a new file starts playing
+- **GPIO16 button file control** (when files are present):
+  - Long press — play/pause current file
+  - Short press — cycle to next file (if multiple files loaded)
+- **Unique unit ID** — last 4 hex digits of MAC shown on status area
+  - Makes it easy to identify which unit is which
+  - Matches the WiFi hotspot name (K0WLY-XXXX)
+- **AP+STA simultaneous mode** — WiFi hotspot and ESP-NOW peer connection
+  work at the same time on the same hardware
+
+### Changed
+- WiFi mode changed from WIFI_STA to WIFI_AP_STA
+- AP SSID is now unique per unit (K0WLY-XXXX) instead of K0WLY-Keyer
+- Status area now shows unit ID above callsign/version
+
+---
+
 ## [1.2.3] — 2026 — Audio Only Mode
 
 ### Added
@@ -23,6 +55,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Header shows `DLY:AO` when active
   - Status area shows `AUDIO ONLY` as the value
   - RX line shows `[Audio Only]` in dim text instead of decoded characters
+  - Incoming CW audio plays normally — only the text display is suppressed
+  - Perfect for operators who want pure audible head copy with no visual crutch
+
+---
+
+## [1.3.0] — 2026 — WiFi File Playback
+
+### Added
+- **WiFi Access Point** — keyer creates a unique hotspot (K0WLY-XXXX) on boot
+  - Connect any phone, tablet, or computer — no password required
+  - Browse to http://192.168.4.1 for the file management web page
+  - Works on Android, iPhone, Windows, Mac, and Linux
+- **Text file playback** — upload .txt files and play them as CW practice
+  - Upload files from phone browser — no computer or cables needed
+  - Files stored on-board in LittleFS flash filesystem
+  - Multiple files supported — tap Play next to any file
+  - Delete files from the web page
+- **Synchronized TX display** — characters appear as they sound, not ahead
+  - Each character displays at the character gap (after all elements played)
+  - Word spaces display when the word gap silence plays
+  - TX line clears automatically when a new file starts playing
+- **GPIO16 button file control** (when files are present):
+  - Long press — play/pause current file
+  - Short press — cycle to next file (if multiple files loaded)
+- **Unique unit ID** — last 4 hex digits of MAC shown on status area
+  - Makes it easy to identify which unit is which
+  - Matches the WiFi hotspot name (K0WLY-XXXX)
+- **AP+STA simultaneous mode** — WiFi hotspot and ESP-NOW peer connection
+  work at the same time on the same hardware
+
+### Changed
+- WiFi mode changed from WIFI_STA to WIFI_AP_STA
+- AP SSID is now unique per unit (K0WLY-XXXX) instead of K0WLY-Keyer
+- Status area now shows unit ID above callsign/version
+
+---
+
+## [1.2.3] — 2026 — Audio Only Mode
+
+### Added
+- **Audio Only (AO) mode** for head copy delay setting
+  - Turn pot to top 10% of range while in DELAY edit mode to enable
+  - Header shows `DLY:AO` when active
+  - Status area shows `AUDIO ONLY` as the value
+  - RX line shows `[Audio Only]` in dim orange when active
   - Incoming CW audio plays normally — only the text display is suppressed
   - Perfect for operators who want pure audible head copy with no visual crutch
 

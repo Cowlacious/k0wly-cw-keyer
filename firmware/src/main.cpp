@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.2.3
+//  Version 1.3.0
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -17,10 +17,12 @@
 //    - Two-way CW: outgoing keyed locally, transmitted to peer
 //    - Incoming CW replayed with sender's frequency + shown on screen
 //    - Head copy delay: incoming chars display delayed 0-3s after receipt
-//    - Single pot cycles through WPM / FREQ / DELAY / VOL modes via button
-//    - Logarithmic volume control (PWM duty), works for speaker and headphones
-//    - Pot pickup mode: no value jump when switching pot modes
-//    - Session frequency set by first station to send
+//    - Audio Only mode: incoming audio plays but RX text suppressed
+//    - Farnsworth spacing: independent character and gap speeds
+//    - Word gap spacing: automatic space detection
+//    - File playback: send text file via phone web browser → plays in CW
+//    - WiFi AP: connect phone to K0WLY-Keyer hotspot, upload/manage files
+//    - Single pot cycles through WPM / FREQ / DELAY / VOL / GAP modes
 //    - Display: header | TX scrolling line | RX scrolling line | status
 //
 //  platformio.ini:
@@ -35,6 +37,7 @@
 //  board_build.flash_mode = dio
 //  board_build.psram_type = opi
 //  board_upload.flash_size = 16MB
+//  board_build.partitions = default_8MB.csv
 //  monitor_speed = 115200
 //  build_flags =
 //      -DARDUINO_USB_CDC_ON_BOOT=1
@@ -42,6 +45,8 @@
 //  lib_deps =
 //      https://github.com/Xinyuan-LilyGO/LilyGo-AMOLED-Series
 //      https://github.com/moononournation/Arduino_GFX#v1.4.7
+//      ESP Async WebServer
+//      AsyncTCP
 //  ─────────────────────────────────────────────────────────────
 //
 //  GPIO PIN ASSIGNMENTS (1.91" AMOLED — reserved: 2,3,5,6,7,9,17,18,21,38,47,48)
@@ -65,11 +70,39 @@
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <Preferences.h>
+#include <LittleFS.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.2.3"
+#define FW_VERSION "v1.3.0"
+
+// WiFi AP settings for file upload
+#define AP_SSID     "K0WLY-Keyer"
+#define AP_PASSWORD ""           // open network — no password
+#define AP_IP       "192.168.4.1"
+
+// Unit ID — last 4 hex digits of MAC, set during WiFi init
+static char unitID[8] = "????";
+static char apSSID[24] = "K0WLY-????";  // set during init
+
+// Web server on port 80
+AsyncWebServer webServer(80);
+
+// File playback state
+#define MAX_FILES       20
+#define MAX_FILENAME    32
+#define FILE_SEND_DELAY 5   // ms between characters during playback check
+
+static char     fileList[MAX_FILES][MAX_FILENAME];
+static int      fileCount        = 0;
+static int      currentFileIdx   = 0;
+static bool     filePlayActive   = false;
+static bool     filePlayPaused   = false;
+static File     playFile;
+static bool     filesAvailable   = false;
 
 // ── Pin definitions ──────────────────────────────────────────────────────────
 #define PIN_DIT         11
@@ -163,7 +196,85 @@ static const char morseTree[] = {
 };
 volatile uint8_t morsePos = 0;
 
-// ── Outgoing decoded char buffer ──────────────────────────────────────────────
+// ── Morse encoder (text → CW elements for file playback) ─────────────────────
+// Each entry is a string of '.' and '-' characters, null terminated
+// Index matches ASCII value starting at ' ' (32)
+struct MorseCode { const char *code; };
+static const MorseCode morseEncoder[] = {
+    {" "},    // ' ' space = word gap
+    {"-.-.--"}, // '!'
+    {".-..-."},  // '"'
+    {""},        // '#'
+    {"...-..-"}, // '$'
+    {""},        // '%'
+    {".-..."},   // '&' AS prosign
+    {".----."},  // '\''
+    {"-.--."},   // '('
+    {"-.--.-"},  // ')'
+    {""},        // '*'
+    {".-.-."},   // '+' AR prosign
+    {"--..--"},  // ','
+    {"-....-"},  // '-'
+    {".-.-.-"},  // '.'
+    {"-..-."},   // '/'
+    {"-----"},   // '0'
+    {".----"},   // '1'
+    {"..---"},   // '2'
+    {"...--"},   // '3'
+    {"....-"},   // '4'
+    {"....."},   // '5'
+    {"-...."},   // '6'
+    {"--..."},   // '7'
+    {"---.."},   // '8'
+    {"----."},   // '9'
+    {"---..."},  // ':'
+    {"-.-.-."},  // ';'
+    {""},        // '<'
+    {"-...-"},   // '=' BT prosign
+    {""},        // '>'
+    {"..--.."},  // '?'
+    {".--.-."},  // '@'
+    {".-"},      // 'A'
+    {"-..."},    // 'B'
+    {"-.-."},    // 'C'
+    {"-.."},     // 'D'
+    {"."},       // 'E'
+    {"..-."},    // 'F'
+    {"--."},     // 'G'
+    {"...."},    // 'H'
+    {".."},      // 'I'
+    {".---"},    // 'J'
+    {"-.-"},     // 'K'
+    {".-.."},    // 'L'
+    {"--"},      // 'M'
+    {"-."},      // 'N'
+    {"---"},     // 'O'
+    {".--."},    // 'P'
+    {"--.-"},    // 'Q'
+    {".-."},     // 'R'
+    {"..."},     // 'S'
+    {"-"},       // 'T'
+    {"..-"},     // 'U'
+    {"...-"},    // 'V'
+    {".--"},     // 'W'
+    {"-..-"},    // 'X'
+    {"-.--"},    // 'Y'
+    {"--.."},    // 'Z'
+};
+#define MORSE_ENCODER_SIZE (sizeof(morseEncoder)/sizeof(morseEncoder[0]))
+
+// File playback element queue
+#define FILE_ELEM_BUF_SIZE 64
+struct FileElement { bool isDah; bool isGap; bool isCharGap; bool isWordGap; bool isFirstElement; char displayChar; };
+static FileElement fileElemBuf[FILE_ELEM_BUF_SIZE];
+static volatile uint8_t fileElemHead = 0;
+static volatile uint8_t fileElemTail = 0;
+
+// File playback char queue for TX display
+#define FILE_CHAR_BUF_SIZE 32
+static char     fileCharBuf[FILE_CHAR_BUF_SIZE];
+static volatile uint8_t fileCharHead = 0;
+static volatile uint8_t fileCharTail = 0;
 #define OUT_BUF_SIZE 32
 volatile char    outBuf[OUT_BUF_SIZE];
 volatile uint8_t outBufHead = 0;
@@ -848,10 +959,27 @@ void drawStatusArea() {
         drawString(4, STATUS_Y + 68, "SEARCHING...", C_DARKGRAY, C_BLACK, 1);
     }
 
+    // File status — show if files available
+    if (filesAvailable && fileCount > 0) {
+        char fileStr[48];
+        if (filePlayActive) {
+            snprintf(fileStr, sizeof(fileStr), "%s %s",
+                filePlayPaused ? "\u23F8" : "\u25B6",
+                fileList[currentFileIdx]);
+        } else {
+            snprintf(fileStr, sizeof(fileStr), "FILE: %s", fileList[currentFileIdx]);
+        }
+        drawString(4, STATUS_Y + 80, fileStr, filePlayActive ? C_YELLOW : C_DARKGRAY, C_BLACK, 1);
+    }
+
+    // Unit ID above version — bottom right, dim white
+    uint16_t callX = SCR_W - (strlen(unitID) * 12) - 4;
+    drawString(callX, STATUS_Y + 44, unitID, swapBytes(0x8410), C_BLACK, 2);
+
     // K0WLY callsign + firmware version — bottom right, scale 2
     char callStr[16];
     snprintf(callStr, sizeof(callStr), "K0WLY %s", FW_VERSION);
-    uint16_t callX = SCR_W - (strlen(callStr) * 12) - 4;
+    callX = SCR_W - (strlen(callStr) * 12) - 4;
     drawString(callX, STATUS_Y + 62, callStr, C_GREEN, C_BLACK, 2);
 
     flushBand(STATUS_Y, STATUS_H);
@@ -1046,6 +1174,233 @@ void loadSettings() {
     }
 }
 
+// ── File playback helpers ─────────────────────────────────────────────────────
+void startFilePlayback(String name) {
+    if (!name.startsWith("/")) name = "/" + name;
+    if (!LittleFS.exists(name)) return;
+    if (playFile) playFile.close();
+    playFile = LittleFS.open(name, "r");
+    if (playFile) {
+        filePlayActive  = true;
+        filePlayPaused  = false;
+        // Clear TX line for fresh start
+        memset(txLine, 0, sizeof(txLine));
+        drawTXLine();
+        Serial.println("Playing: " + name);
+    }
+}
+
+// ── LittleFS file management ──────────────────────────────────────────────────
+void scanFiles() {
+    fileCount = 0;
+    filesAvailable = false;
+    File root = LittleFS.open("/");
+    if (!root || !root.isDirectory()) return;
+    File f = root.openNextFile();
+    while (f && fileCount < MAX_FILES) {
+        if (!f.isDirectory()) {
+            String name = String(f.name());
+            if (name.endsWith(".txt") || name.endsWith(".TXT")) {
+                strncpy(fileList[fileCount], f.name(), MAX_FILENAME - 1);
+                fileList[fileCount][MAX_FILENAME - 1] = '\0';
+                fileCount++;
+                filesAvailable = true;
+            }
+        }
+        f = root.openNextFile();
+    }
+    if (currentFileIdx >= fileCount) currentFileIdx = 0;
+}
+
+// Queue a character's Morse elements for playback
+void queueCharMorse(char c) {
+    // Convert to uppercase
+    if (c >= 'a' && c <= 'z') c -= 32;
+
+    // Handle space — word gap
+    if (c == ' ') {
+        uint8_t next = (fileElemHead + 1) % FILE_ELEM_BUF_SIZE;
+        if (next != fileElemTail) {
+            fileElemBuf[fileElemHead] = {false, false, false, true, false, ' '};
+            fileElemHead = next;
+        }
+        return;
+    }
+
+    // Look up Morse code
+    int idx = (int)c - 32;
+    if (idx < 0 || idx >= (int)MORSE_ENCODER_SIZE) return;
+    const char *code = morseEncoder[idx].code;
+    if (!code || strlen(code) == 0) return;
+
+    // Queue each element with inter-element gaps
+    bool firstElem = true;
+    for (int i = 0; code[i]; i++) {
+        // Add element — mark first one with display char
+        uint8_t next = (fileElemHead + 1) % FILE_ELEM_BUF_SIZE;
+        if (next != fileElemTail) {
+            fileElemBuf[fileElemHead] = {code[i] == '-', false, false, false, firstElem, firstElem ? (char)c : (char)0};
+            fileElemHead = next;
+            firstElem = false;
+        }
+        // Add inter-element gap (except after last element)
+        if (code[i+1]) {
+            next = (fileElemHead + 1) % FILE_ELEM_BUF_SIZE;
+            if (next != fileElemTail) {
+                fileElemBuf[fileElemHead] = {false, true, false, false, false, 0};
+                fileElemHead = next;
+            }
+        }
+    }
+    // Add character gap
+    uint8_t next = (fileElemHead + 1) % FILE_ELEM_BUF_SIZE;
+    if (next != fileElemTail) {
+        fileElemBuf[fileElemHead] = {false, false, true, false, false, 0};
+        fileElemHead = next;
+    }
+}
+
+// ── Web server HTML page ───────────────────────────────────────────────────────
+// Web page stored in flash (PROGMEM) to save heap memory
+static const char WEB_PAGE[] PROGMEM = R"rawliteral(
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K0WLY CW Keyer</title>
+<style>
+body{font-family:Arial,sans-serif;background:#1a1a2e;color:#eee;max-width:500px;margin:0 auto;padding:20px}
+h1{color:#07e0a0;text-align:center}
+h2{color:#07c0ff;margin-top:20px}
+.card{background:#16213e;border-radius:8px;padding:15px;margin:10px 0}
+input[type=file]{width:100%;padding:8px;margin:8px 0;border-radius:4px;border:1px solid #444;background:#0f3460;color:#eee;box-sizing:border-box}
+button{background:#07e0a0;color:#000;border:none;padding:10px 20px;border-radius:4px;cursor:pointer;font-weight:bold;margin:4px}
+button.del{background:#e74c3c;color:#fff}
+button.play{background:#3498db;color:#fff}
+.file-item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid #333}
+.status{color:#07e0a0;padding:10px;text-align:center}
+</style></head><body>
+<h1>&#9742; K0WLY CW Keyer</h1>
+<div class="card">
+<h2>Upload Text File</h2>
+<form id="uploadForm" enctype="multipart/form-data">
+<input type="file" id="fileInput" accept=".txt">
+<button type="button" onclick="uploadFile()">Upload</button>
+</form>
+<div id="uploadStatus" class="status"></div>
+</div>
+<div class="card">
+<h2>Files on Keyer</h2>
+<div id="fileList">Loading...</div>
+</div>
+<div class="card">
+<button class="del" style="width:100%" onclick="stopPlay()">&#9646;&#9646; Stop Playback</button>
+</div>
+<script>
+function uploadFile(){
+  const f=document.getElementById('fileInput').files[0];
+  if(!f){alert('Select a file first');return;}
+  const fd=new FormData();fd.append('file',f);
+  document.getElementById('uploadStatus').innerText='Uploading...';
+  fetch('/upload',{method:'POST',body:fd})
+  .then(r=>r.text()).then(t=>{document.getElementById('uploadStatus').innerText=t;loadFiles();})
+  .catch(e=>{document.getElementById('uploadStatus').innerText='Error: '+e;});
+}
+function loadFiles(){
+  fetch('/files').then(r=>r.json()).then(files=>{
+    const div=document.getElementById('fileList');
+    if(!files.length){div.innerHTML='<p>No files yet. Upload a .txt file above.</p>';return;}
+    div.innerHTML=files.map(f=>`
+      <div class="file-item"><span>${f}</span>
+      <div><button class="play" onclick="playFile('${f}')">&#9654; Play</button>
+      <button class="del" onclick="deleteFile('${f}')">Delete</button></div></div>`).join('');
+  });
+}
+function playFile(name){fetch('/play?name='+encodeURIComponent(name)).then(r=>r.text()).then(t=>alert(t));}
+function deleteFile(name){if(!confirm('Delete '+name+'?'))return;fetch('/delete?name='+encodeURIComponent(name)).then(r=>r.text()).then(t=>{alert(t);loadFiles();});}
+function stopPlay(){fetch('/stop').then(r=>r.text()).then(t=>alert(t));}
+loadFiles();
+</script>
+</body></html>
+)rawliteral";
+
+void setupWebServer() {
+    webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
+        req->send_P(200, "text/html", WEB_PAGE);
+    });
+
+    // List files as JSON
+    webServer.on("/files", HTTP_GET, [](AsyncWebServerRequest *req) {
+        scanFiles();
+        String json = "[";
+        for (int i = 0; i < fileCount; i++) {
+            if (i) json += ",";
+            json += "\"" + String(fileList[i]) + "\"";
+        }
+        json += "]";
+        req->send(200, "application/json", json);
+    });
+
+    // Play a file
+    webServer.on("/play", HTTP_GET, [](AsyncWebServerRequest *req) {
+        if (!req->hasParam("name")) { req->send(400, "text/plain", "No filename"); return; }
+        String name = req->getParam("name")->value();
+        if (!name.startsWith("/")) name = "/" + name;
+        if (!LittleFS.exists(name)) { req->send(404, "text/plain", "File not found"); return; }
+        for (int i = 0; i < fileCount; i++) {
+            if (String(fileList[i]) == name || String(fileList[i]) == name.substring(1)) {
+                currentFileIdx = i; break;
+            }
+        }
+        startFilePlayback(name);
+        req->send(200, "text/plain", "Playing: " + name);
+    });
+
+    // Stop playback
+    webServer.on("/stop", HTTP_GET, [](AsyncWebServerRequest *req) {
+        filePlayActive = false;
+        filePlayPaused = false;
+        if (playFile) playFile.close();
+        req->send(200, "text/plain", "Stopped");
+    });
+
+    // Delete a file
+    webServer.on("/delete", HTTP_GET, [](AsyncWebServerRequest *req) {
+        if (!req->hasParam("name")) { req->send(400, "text/plain", "No filename"); return; }
+        String name = req->getParam("name")->value();
+        if (!name.startsWith("/")) name = "/" + name;
+        if (LittleFS.remove(name)) {
+            scanFiles();
+            req->send(200, "text/plain", "Deleted: " + name);
+        } else {
+            req->send(500, "text/plain", "Delete failed");
+        }
+    });
+
+    // Handle file upload
+    webServer.on("/upload", HTTP_POST,
+        [](AsyncWebServerRequest *req) {
+            req->send(200, "text/plain", "Upload complete");
+            scanFiles();
+        },
+        [](AsyncWebServerRequest *req, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+            static File uploadFile;
+            if (!index) {
+                if (!filename.startsWith("/")) filename = "/" + filename;
+                if (!filename.endsWith(".txt") && !filename.endsWith(".TXT")) {
+                    req->send(400, "text/plain", "Only .txt files allowed");
+                    return;
+                }
+                uploadFile = LittleFS.open(filename, "w");
+            }
+            if (uploadFile) uploadFile.write(data, len);
+            if (final && uploadFile) uploadFile.close();
+        }
+    );
+
+    webServer.begin();
+    Serial.println("Web server started at http://" + String(AP_IP));
+}
+
 // ── setup() ──────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
@@ -1111,14 +1466,44 @@ void setup() {
     }
     // NVS values loaded by loadSettings() above — do NOT override with pot position
 
+    // LittleFS — initialize before WiFi
+    Serial.println("Mounting LittleFS...");
+    if (!LittleFS.begin(false)) {
+        Serial.println("LittleFS mount failed — formatting...");
+        if (LittleFS.begin(true)) {
+            Serial.println("LittleFS formatted and mounted OK");
+        } else {
+            Serial.println("LittleFS FAILED — file storage unavailable");
+        }
+    } else {
+        Serial.printf("LittleFS mounted OK — %d bytes total, %d used\n",
+            LittleFS.totalBytes(), LittleFS.usedBytes());
+    }
+    delay(100);
+    scanFiles();
+    Serial.printf("Files found: %d\n", fileCount);
+
+    // WiFi — AP+STA mode
+    WiFi.mode(WIFI_OFF); delay(100);
+    WiFi.mode(WIFI_AP_STA); delay(200);
+
+    // Generate unique SSID and unit ID from MAC address — must be before drawUI
+    uint8_t mac[6];
+    esp_wifi_get_mac(WIFI_IF_AP, mac);
+    snprintf(unitID, sizeof(unitID), "%02X%02X", mac[4], mac[5]);
+    snprintf(apSSID, sizeof(apSSID), "K0WLY-%s", unitID);
+
+    // Draw UI now that unitID is set
     drawUI();
 
-    // WiFi / ESP-NOW (runs on Core 0)
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect();
+    WiFi.softAP(apSSID); delay(500);
+    Serial.println("AP IP: " + WiFi.softAPIP().toString());
+    Serial.println("AP SSID: " + String(apSSID));
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
     esp_wifi_set_promiscuous(false);
+
+    // ESP-NOW
     esp_now_init();
     esp_now_register_send_cb(onDataSent);
     esp_now_register_recv_cb(onDataRecv);
@@ -1128,6 +1513,9 @@ void setup() {
     bcastPeer.channel = 1;
     bcastPeer.encrypt = false;
     esp_now_add_peer(&bcastPeer);
+
+    // STEP 3: Web server
+    setupWebServer();
 
     // Keyer task pinned to Core 1 — completely isolated from WiFi on Core 0
     // Uses vTaskDelayUntil for precise 1ms timing unaffected by WiFi interrupts
@@ -1167,11 +1555,53 @@ void loop() {
     uint32_t now = millis();
 
     // ── Paddle reverse button ────────────────────────────────────────────────
-    if (now - lastRevCheck >= 50) {
+    // ── Paddle reverse button (GPIO16) ───────────────────────────────────────
+    // Short press: toggle paddle reverse (normal mode) or next file (file mode)
+    // Long press: play/pause file playback (if files available)
+    if (now - lastRevCheck >= 20) {
         lastRevCheck = now;
-        static bool lastRevBtn = HIGH;
+        static bool    lastRevBtn    = HIGH;
+        static uint32_t revPressedAt = 0;
+        static bool    revLongFired  = false;
         bool cur = digitalRead(PIN_REVERSE);
-        if (lastRevBtn == HIGH && cur == LOW) paddleReverse = !paddleReverse;
+
+        if (lastRevBtn == HIGH && cur == LOW) {
+            revPressedAt = now;
+            revLongFired = false;
+        }
+
+        if (cur == LOW && !revLongFired) {
+            if (now - revPressedAt >= LONG_PRESS_MS) {
+                revLongFired = true;
+                if (filesAvailable) {
+                    if (filePlayActive) {
+                        filePlayPaused = !filePlayPaused;
+                        Serial.println(filePlayPaused ? "Paused" : "Resumed");
+                    } else {
+                        if (fileCount > 0) {
+                            startFilePlayback("/" + String(fileList[currentFileIdx]));
+                        }
+                    }
+                }
+            }
+        }
+
+        if (lastRevBtn == LOW && cur == HIGH) {
+            if (!revLongFired) {
+                if (filesAvailable && fileCount > 1) {
+                    currentFileIdx = (currentFileIdx + 1) % fileCount;
+                    if (filePlayActive) {
+                        filePlayActive = false;
+                        startFilePlayback("/" + String(fileList[currentFileIdx]));
+                    }
+                    Serial.println("File: " + String(fileList[currentFileIdx]));
+                } else {
+                    // Normal paddle reverse toggle
+                    paddleReverse = !paddleReverse;
+                }
+            }
+        }
+
         lastRevBtn = cur;
     }
 
@@ -1320,10 +1750,18 @@ void loop() {
     }
 
     // ── Header refresh (peer status may change) ───────────────────────────────
-    if (now - lastHeaderUpdate >= 1000) {
+    if (now - lastHeaderUpdate >= 500) {
         lastHeaderUpdate = now;
-        if (peerFound != lastPeerFound) {
-            lastPeerFound = peerFound;
+        static bool lastFilePlay = false;
+        static bool lastFilePause = false;
+        bool needRedraw = false;
+        if (peerFound != lastPeerFound) { lastPeerFound = peerFound; needRedraw = true; }
+        if (filePlayActive != lastFilePlay || filePlayPaused != lastFilePause) {
+            lastFilePlay  = filePlayActive;
+            lastFilePause = filePlayPaused;
+            needRedraw = true;
+        }
+        if (needRedraw) {
             drawHeader();
             drawStatusArea();
         }
@@ -1391,6 +1829,89 @@ void loop() {
 
     // ── Remote element playback ───────────────────────────────────────────────
     serviceRemoteElements();
+
+    // ── File playback ─────────────────────────────────────────────────────────
+    static uint32_t lastFileRead = 0;
+    if (filePlayActive && !filePlayPaused && playFile && (now - lastFileRead >= 10)) {
+        lastFileRead = now;
+        // Only read next char if element queue has space
+        if (((fileElemHead + 4) % FILE_ELEM_BUF_SIZE) != fileElemTail) {
+            int c = playFile.read();
+            if (c == -1) {
+                // End of file
+                filePlayActive = false;
+                playFile.close();
+                Serial.println("File playback complete");
+            } else {
+                queueCharMorse((char)c);
+            }
+        }
+    }
+
+    // ── File element playback via keyer task ──────────────────────────────────
+    // File elements are played via a separate check in loop since keyer task
+    // owns the sidetone — we inject into the sidetone here when keyer is idle
+    static bool     fileKeying    = false;
+    static uint32_t fileKeyEndMs  = 0;
+    static uint32_t fileGapEndMs  = 0;
+    static bool     fileInGap     = false;
+    static char     filePendingChar = 0;  // character waiting to display at char gap
+
+    if (!fileKeying && !fileInGap && fileElemTail != fileElemHead &&
+        keyerState == KEYER_IDLE && !ditMemory && !dahMemory) {
+        FileElement &el = fileElemBuf[fileElemTail];
+        fileElemTail = (fileElemTail + 1) % FILE_ELEM_BUF_SIZE;
+
+        uint32_t ditMs  = charDitLen_ms;
+        uint32_t gapMs  = gapDitLen_ms;
+
+        if (el.isWordGap) {
+            // Word gap
+            fileInGap    = true;
+            fileGapEndMs = now + gapMs * 4;
+            addTXChar(' ');
+            sendChar(' ');
+        } else if (el.isCharGap) {
+            // Display the character now that all its elements have played
+            if (filePendingChar) {
+                addTXChar(filePendingChar);
+                sendChar(filePendingChar);
+                filePendingChar = 0;
+            }
+            fileInGap    = true;
+            fileGapEndMs = now + gapMs * 3;
+        } else if (el.isGap) {
+            fileInGap    = true;
+            fileGapEndMs = now + gapMs;
+        } else {
+            // Sound the element
+            uint32_t dur = el.isDah ? ditMs * 3 : ditMs;
+            // Store char for display at char gap (when first element plays)
+            if (el.isFirstElement && el.displayChar) {
+                filePendingChar = el.displayChar;
+            }
+            ledcSetup(LEDC_CHANNEL_LOCAL, localFreq, LEDC_RES_BITS);
+            ledcAttachPin(PIN_SIDETONE, LEDC_CHANNEL_LOCAL);
+            ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
+            digitalWrite(PIN_KEY_OUT, HIGH);
+            fileKeying   = true;
+            fileKeyEndMs = now + dur;
+            sendElement(el.isDah, dur);
+        }
+    }
+
+    if (fileKeying && now >= fileKeyEndMs) {
+        ledcWrite(LEDC_CHANNEL_LOCAL, 0);
+        digitalWrite(PIN_KEY_OUT, LOW);
+        fileKeying = false;
+        // Start inter-element gap
+        fileInGap    = true;
+        fileGapEndMs = now + charDitLen_ms;
+    }
+
+    if (fileInGap && now >= fileGapEndMs) {
+        fileInGap = false;
+    }
 
     delay(5);
 }
