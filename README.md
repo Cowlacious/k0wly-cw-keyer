@@ -186,8 +186,58 @@ and prosigns: **+** = AR, **=** = BT, **~** = SK
 | Character gap | 3 × (1200/WPM) ms |
 | Word gap | 7 × (1200/WPM) ms |
 
+
 ---
 
+## Updating Firmware
+
+Each GitHub release includes a pre-compiled `firmware.bin` file that can be flashed without installing PlatformIO or compiling any code.
+
+### Option 1 — Espressif Flash Download Tool (Windows, easiest)
+
+1. Download the **[Espressif Flash Download Tool](https://www.espressif.com/en/support/download/other-tools)** — look for "Flash Download Tools" and download the `.zip`
+2. Extract and run `flash_download_tool.exe`
+3. Select **ESP32-S3** as the chip type
+4. Click the `...` button next to the first address field and select your `firmware.bin`
+5. Set the address to `0x10000`
+6. Select your COM port from the dropdown (check Device Manager if unsure)
+7. Set baud rate to `921600`
+8. Click **START**
+9. If it fails to connect, hold the **BOOT** button on the board, press and release **RST**, then release **BOOT** and click START again
+
+### Option 2 — esptool.py (Windows / Mac / Linux)
+
+**Install esptool** (requires Python):
+```
+pip install esptool
+```
+
+**Flash the firmware:**
+```
+esptool.py --port COM3 --baud 921600 write_flash 0x10000 firmware.bin
+```
+
+Replace `COM3` with your actual port:
+- **Windows** — check Device Manager under Ports (COM & LPT)
+- **Mac** — typically `/dev/tty.usbmodem101` or `/dev/cu.usbmodem101`
+- **Linux** — typically `/dev/ttyACM0`
+
+If connection fails, hold **BOOT**, press **RST**, release **BOOT**, then run the command.
+
+### Option 3 — OTA via Web Browser (experimental)
+
+Connect to the `K0WLY-XXXX` WiFi hotspot and browse to `http://192.168.4.1`. Scroll to the **Firmware Update** section and upload `firmware.bin`. This works on some browsers but may fail on Android Chrome due to browser security restrictions on binary uploads to local addresses. If it fails, use Option 1 or 2.
+
+### Building from Source
+
+For developers who want to modify the firmware:
+- Install [VS Code](https://code.visualstudio.com/) and the [PlatformIO extension](https://platformio.org/)
+- Clone this repository
+- Open `firmware/` folder in VS Code
+- Copy the `boards/lilygo-t-amoled.json` board definition to `firmware/boards/`
+- Build and upload using PlatformIO
+
+---
 ## Repository Structure
 
 ```
