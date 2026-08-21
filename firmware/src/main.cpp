@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.3.0
+//  Version 1.3.1
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -73,11 +73,14 @@
 #include <LittleFS.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+#include <ESPAsyncHTTPUpdateServer.h>
+
+ESPAsyncHTTPUpdateServer otaUpdater;
 
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.3.0"
+#define FW_VERSION "v1.3.1"
 
 // WiFi AP settings for file upload
 #define AP_SSID     "K0WLY-Keyer"
@@ -1276,8 +1279,11 @@ input[type=file]{width:100%;padding:8px;margin:8px 0;border-radius:4px;border:1p
 button{background:#07e0a0;color:#000;border:none;padding:10px 20px;border-radius:4px;cursor:pointer;font-weight:bold;margin:4px}
 button.del{background:#e74c3c;color:#fff}
 button.play{background:#3498db;color:#fff}
+button.ota{background:#9b59b6;color:#fff}
 .file-item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid #333}
 .status{color:#07e0a0;padding:10px;text-align:center}
+.warn{color:#e74c3c;font-size:0.85em;margin-top:8px}
+progress{width:100%;height:20px;margin-top:8px;border-radius:4px}
 </style></head><body>
 <h1>&#9742; K0WLY CW Keyer</h1>
 <div class="card">
@@ -1294,6 +1300,11 @@ button.play{background:#3498db;color:#fff}
 </div>
 <div class="card">
 <button class="del" style="width:100%" onclick="stopPlay()">&#9646;&#9646; Stop Playback</button>
+</div>
+<div class="card">
+<h2>&#128295; Firmware Update</h2>
+<p>To update the firmware, go to the firmware update page:</p>
+<a href="/update" style="display:block;background:#9b59b6;color:#fff;text-align:center;padding:12px;border-radius:4px;text-decoration:none;font-weight:bold;margin-top:8px">&#128295; Open Firmware Update Page</a>
 </div>
 <script>
 function uploadFile(){
@@ -1324,8 +1335,13 @@ loadFiles();
 )rawliteral";
 
 void setupWebServer() {
+    // Increase max body size for OTA firmware uploads (default is too small)
+    // This must be set before any routes are added
+    webServer.onRequestBody([](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+        // Empty handler — just allows large bodies through
+    });
     webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
-        req->send_P(200, "text/html", WEB_PAGE);
+        req->send(200, "text/html", WEB_PAGE);
     });
 
     // List files as JSON
@@ -1397,9 +1413,13 @@ void setupWebServer() {
         }
     );
 
+    // OTA firmware update
+    otaUpdater.setup(&webServer, "/update");
+
     webServer.begin();
     Serial.println("Web server started at http://" + String(AP_IP));
 }
+
 
 // ── setup() ──────────────────────────────────────────────────────────────────
 void setup() {
