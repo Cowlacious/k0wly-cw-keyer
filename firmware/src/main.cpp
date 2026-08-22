@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.4.0
+//  Version 1.4.1
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -77,7 +77,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.4.0"
+#define FW_VERSION "v1.4.1"
 
 // WiFi AP settings for file upload
 #define AP_SSID     "K0WLY-Keyer"
