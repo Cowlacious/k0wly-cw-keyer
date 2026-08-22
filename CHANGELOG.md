@@ -15,6 +15,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.0] — 2026 — Iambic Output and Web UI Redesign
+
+### Added
+- **Iambic DIT/DAH output** on GPIO40 and GPIO41
+  - Active LOW, same optocoupler circuit as existing KEY OUT (GPIO12)
+  - Connect to radio's 3.5mm paddle input (tip=DIT, ring=DAH, sleeve=GND)
+  - Driven in sync with keyer ISR — exact timing matches actual keying
+  - Also driven during file playback — radio transmits CW from practice files
+  - Paddle reverse applies to outputs — swapping dit/dah swaps the outputs too
+  - Always active — no switch needed, just plug in
+- **Dit/Dah swap button** on web page (orange button at top)
+  - Shows SWAPPED or NORMAL confirmation after tap
+  - GPIO16 button now exclusively handles dit/dah swap (no file control)
+- **Improved file list** on web page
+  - Filenames shown without .txt extension
+  - Underscores displayed as spaces (cq_call.txt → "cq call")
+  - Compact Play/Delete buttons per file
+  - Works cleanly with 10+ files
+
+### Changed
+- GPIO16 button simplified — only toggles dit/dah swap, no file control
+- Web page redesigned — Practice Files section prominent, Upload moved to bottom
+- File playback drives iambic outputs so radio transmits during practice
+
+### Removed
+- OTA firmware update section removed from web page (unreliable on Android)
+- ESPAsyncHTTPUpdateServer library dependency removed
+
+---
+
 ## [1.3.0] — 2026 — WiFi File Playback
 
 ### Added
@@ -57,6 +87,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - RX line shows `[Audio Only]` in dim text instead of decoded characters
   - Incoming CW audio plays normally — only the text display is suppressed
   - Perfect for operators who want pure audible head copy with no visual crutch
+
+---
+
+## [1.4.0] — 2026 — Iambic Output and Web UI Redesign
+
+### Added
+- **Iambic DIT/DAH output** on GPIO40 and GPIO41
+  - Active LOW, same optocoupler circuit as existing KEY OUT (GPIO12)
+  - Connect to radio's 3.5mm paddle input (tip=DIT, ring=DAH, sleeve=GND)
+  - Driven in sync with keyer ISR — exact timing matches actual keying
+  - Also driven during file playback — radio transmits CW from practice files
+  - Paddle reverse applies to outputs — swapping dit/dah swaps the outputs too
+  - Always active — no switch needed, just plug in
+- **Dit/Dah swap button** on web page (orange button at top)
+  - Shows SWAPPED or NORMAL confirmation after tap
+  - GPIO16 button now exclusively handles dit/dah swap (no file control)
+- **Improved file list** on web page
+  - Filenames shown without .txt extension
+  - Underscores displayed as spaces (cq_call.txt → "cq call")
+  - Compact Play/Delete buttons per file
+  - Works cleanly with 10+ files
+
+### Changed
+- GPIO16 button simplified — only toggles dit/dah swap, no file control
+- Web page redesigned — Practice Files section prominent, Upload moved to bottom
+- File playback drives iambic outputs so radio transmits during practice
+
+### Removed
+- OTA firmware update section removed from web page (unreliable on Android)
+- ESPAsyncHTTPUpdateServer library dependency removed
 
 ---
 
