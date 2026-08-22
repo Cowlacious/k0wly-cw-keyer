@@ -24,6 +24,8 @@ A full-featured two-way CW (Morse code) keyer built on the LilyGO T-Display S3 A
 - **Head copy delay** (0–3 seconds) for incoming character display
 - **WiFi file playback** — upload .txt practice files from any phone browser, plays as CW
 - **WiFi Access Point** — unique hotspot per unit (K0WLY-XXXX), no password, works on all platforms
+- **Iambic DIT/DAH output** (GPIO40/41) — connect to radio paddle input for radios with built-in keyers (e.g. Xiegu G90)
+- **Web interface** — dit/dah swap, file management, all from phone browser at 192.168.4.1
 - **Automatic peer-to-peer WiFi pairing** via ESP-NOW — no router needed
 - **Two-way CW communication** — transmit and receive simultaneously
 - **Real-time Morse decoding** — letters, numbers, punctuation, and prosigns
