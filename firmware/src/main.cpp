@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.4.1
+//  Version 1.4.2
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -73,11 +73,13 @@
 #include <LittleFS.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+#include "driver/gpio.h"
+#include "rom/gpio.h"
 
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.4.1"
+#define FW_VERSION "v1.4.2"
 
 // WiFi AP settings for file upload
 #define AP_SSID     "K0WLY-Keyer"
@@ -115,6 +117,9 @@ static bool     filesAvailable   = false;
 #define PIN_KEY_MODE    15   // LOW = straight key, HIGH (default) = iambic
 #define PIN_IAMBIC_DIT  40   // Iambic DIT output to radio paddle input
 #define PIN_IAMBIC_DAH  41   // Iambic DAH output to radio paddle input
+// Optocoupler is active HIGH (HIGH = LED on = phototransistor conducts = radio keyed)
+#define IAMBIC_ACTIVE   HIGH
+#define IAMBIC_INACTIVE LOW
 
 // ── LEDC ─────────────────────────────────────────────────────────────────────
 #define LEDC_CHANNEL_LOCAL  0
@@ -373,8 +378,8 @@ static void keyer_isr() {
                 ledcAttachPin(PIN_SIDETONE, LEDC_CHANNEL_LOCAL);
                 digitalWrite(PIN_KEY_OUT, HIGH);
                 // Iambic output — DIT active (LOW = pressed)
-                digitalWrite(PIN_IAMBIC_DIT, LOW);
-                digitalWrite(PIN_IAMBIC_DAH, HIGH);
+                digitalWrite(PIN_IAMBIC_DIT, IAMBIC_ACTIVE);
+                digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
                 ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
                 elementTimer = charDitLen_ms;
                 keyerState = KEYER_DIT;
@@ -386,8 +391,8 @@ static void keyer_isr() {
                 ledcAttachPin(PIN_SIDETONE, LEDC_CHANNEL_LOCAL);
                 digitalWrite(PIN_KEY_OUT, HIGH);
                 // Iambic output — DAH active (LOW = pressed)
-                digitalWrite(PIN_IAMBIC_DIT, HIGH);
-                digitalWrite(PIN_IAMBIC_DAH, LOW);
+                digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
+                digitalWrite(PIN_IAMBIC_DAH, IAMBIC_ACTIVE);
                 ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
                 elementTimer = charDitLen_ms * 3;
                 keyerState = KEYER_DAH;
@@ -397,7 +402,7 @@ static void keyer_isr() {
         case KEYER_DIT:
             if (--elementTimer == 0) {
                 digitalWrite(PIN_KEY_OUT, LOW);
-                digitalWrite(PIN_IAMBIC_DIT, HIGH);  // DIT released
+                digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);  // DIT released
                 ledcWrite(LEDC_CHANNEL_LOCAL, 0);
                 elementTimer = gapDitLen_ms;
                 keyerState = KEYER_DIT_GAP;
@@ -412,8 +417,8 @@ static void keyer_isr() {
                     morsePos = morsePos * 2 + 2;
                     if (morsePos >= sizeof(morseTree)) morsePos = 0;
                     digitalWrite(PIN_KEY_OUT, HIGH);
-                    digitalWrite(PIN_IAMBIC_DIT, HIGH);
-                    digitalWrite(PIN_IAMBIC_DAH, LOW);   // DAH active
+                    digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
+                    digitalWrite(PIN_IAMBIC_DAH, IAMBIC_ACTIVE);   // DAH active
                     ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
                     elementTimer = charDitLen_ms * 3;
                     keyerState = KEYER_DAH;
@@ -423,8 +428,8 @@ static void keyer_isr() {
                     morsePos = morsePos * 2 + 1;
                     if (morsePos >= sizeof(morseTree)) morsePos = 0;
                     digitalWrite(PIN_KEY_OUT, HIGH);
-                    digitalWrite(PIN_IAMBIC_DIT, LOW);   // DIT active
-                    digitalWrite(PIN_IAMBIC_DAH, HIGH);
+                    digitalWrite(PIN_IAMBIC_DIT, IAMBIC_ACTIVE);   // DIT active
+                    digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
                     ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
                     elementTimer = charDitLen_ms;
                     keyerState = KEYER_DIT;
@@ -438,7 +443,7 @@ static void keyer_isr() {
         case KEYER_DAH:
             if (--elementTimer == 0) {
                 digitalWrite(PIN_KEY_OUT, LOW);
-                digitalWrite(PIN_IAMBIC_DAH, HIGH);  // DAH released
+                digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);  // DAH released
                 ledcWrite(LEDC_CHANNEL_LOCAL, 0);
                 elementTimer = gapDitLen_ms;          // gap speed (Farnsworth)
                 keyerState = KEYER_DAH_GAP;
@@ -453,8 +458,8 @@ static void keyer_isr() {
                     morsePos = morsePos * 2 + 1;
                     if (morsePos >= sizeof(morseTree)) morsePos = 0;
                     digitalWrite(PIN_KEY_OUT, HIGH);
-                    digitalWrite(PIN_IAMBIC_DIT, LOW);   // DIT active
-                    digitalWrite(PIN_IAMBIC_DAH, HIGH);
+                    digitalWrite(PIN_IAMBIC_DIT, IAMBIC_ACTIVE);   // DIT active
+                    digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
                     ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
                     elementTimer = charDitLen_ms;
                     keyerState = KEYER_DIT;
@@ -464,8 +469,8 @@ static void keyer_isr() {
                     morsePos = morsePos * 2 + 2;
                     if (morsePos >= sizeof(morseTree)) morsePos = 0;
                     digitalWrite(PIN_KEY_OUT, HIGH);
-                    digitalWrite(PIN_IAMBIC_DIT, HIGH);
-                    digitalWrite(PIN_IAMBIC_DAH, LOW);   // DAH active
+                    digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
+                    digitalWrite(PIN_IAMBIC_DAH, IAMBIC_ACTIVE);   // DAH active
                     ledcWrite(LEDC_CHANNEL_LOCAL, sidetone_duty);
                     elementTimer = charDitLen_ms * 3;
                     keyerState = KEYER_DAH;
@@ -1454,6 +1459,15 @@ void setupWebServer() {
 
 // ── setup() ──────────────────────────────────────────────────────────────────
 void setup() {
+    // Release JTAG pins so GPIO40/41 work as regular outputs
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDO_U, PIN_FUNC_GPIO);
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDI_U, PIN_FUNC_GPIO);
+    // Drive LOW (inactive) immediately before anything else
+    gpio_set_direction((gpio_num_t)PIN_IAMBIC_DIT, GPIO_MODE_OUTPUT);
+    gpio_set_level((gpio_num_t)PIN_IAMBIC_DIT, 0);
+    gpio_set_direction((gpio_num_t)PIN_IAMBIC_DAH, GPIO_MODE_OUTPUT);
+    gpio_set_level((gpio_num_t)PIN_IAMBIC_DAH, 0);
+
     Serial.begin(115200);
     delay(500);
     Serial.println("K0WLY CW Keyer booting...");
@@ -1467,9 +1481,9 @@ void setup() {
     pinMode(PIN_KEY_OUT,     OUTPUT);
     digitalWrite(PIN_KEY_OUT, LOW);
     pinMode(PIN_IAMBIC_DIT,  OUTPUT);
-    digitalWrite(PIN_IAMBIC_DIT, HIGH);  // HIGH = not pressed (active LOW to radio)
+    digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);  // LOW = optocoupler off = radio idle
     pinMode(PIN_IAMBIC_DAH,  OUTPUT);
-    digitalWrite(PIN_IAMBIC_DAH, HIGH);  // HIGH = not pressed (active LOW to radio)
+    digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);  // LOW = optocoupler off = radio idle
     pinMode(PIN_REVERSE,     INPUT_PULLUP);
     pinMode(PIN_MODE_BTN,    INPUT_PULLUP);
     pinMode(PIN_KEY_MODE,    INPUT_PULLUP);
@@ -1912,11 +1926,11 @@ void loop() {
             digitalWrite(PIN_KEY_OUT, HIGH);
             // Drive iambic outputs for file playback
             if (el.isDah) {
-                digitalWrite(PIN_IAMBIC_DIT, HIGH);
-                digitalWrite(PIN_IAMBIC_DAH, LOW);
+                digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
+                digitalWrite(PIN_IAMBIC_DAH, IAMBIC_ACTIVE);
             } else {
-                digitalWrite(PIN_IAMBIC_DIT, LOW);
-                digitalWrite(PIN_IAMBIC_DAH, HIGH);
+                digitalWrite(PIN_IAMBIC_DIT, IAMBIC_ACTIVE);
+                digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
             }
             fileKeying   = true;
             fileKeyEndMs = now + dur;
@@ -1928,8 +1942,8 @@ void loop() {
         ledcWrite(LEDC_CHANNEL_LOCAL, 0);
         digitalWrite(PIN_KEY_OUT, LOW);
         // Release iambic outputs
-        digitalWrite(PIN_IAMBIC_DIT, HIGH);
-        digitalWrite(PIN_IAMBIC_DAH, HIGH);
+        digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
+        digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
         fileKeying = false;
         // Start inter-element gap
         fileInGap    = true;

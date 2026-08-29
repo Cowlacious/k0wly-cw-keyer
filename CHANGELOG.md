@@ -15,6 +15,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.2] — 2026 — Bug Fix: Iambic Output Logic
+
+### Fixed
+- **Iambic DIT/DAH output logic was inverted** — optocoupler circuit is active HIGH
+  (GPIO HIGH = LED on = phototransistor conducts = radio keyed) not active LOW as originally coded
+  - Added IAMBIC_ACTIVE and IAMBIC_INACTIVE macros for clarity
+  - All iambic output writes updated to use correct logic
+  - Pins now initialized LOW (inactive) at boot — radio no longer keys on startup
+- Removed invalid RTC_CNTL_WDTCONFIG0_REG and esp_efuse calls that caused compile errors on ESP32-S3
+- Removed unused esp_efuse includes
+
+---
+
 ## [1.4.1] — 2026 — Bug Fix: Morse Decoding for 7, 8, 9
 
 ### Fixed
@@ -97,6 +110,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - RX line shows `[Audio Only]` in dim text instead of decoded characters
   - Incoming CW audio plays normally — only the text display is suppressed
   - Perfect for operators who want pure audible head copy with no visual crutch
+
+---
+
+## [1.4.2] — 2026 — Bug Fix: Iambic Output Logic
+
+### Fixed
+- **Iambic DIT/DAH output logic was inverted** — optocoupler circuit is active HIGH
+  (GPIO HIGH = LED on = phototransistor conducts = radio keyed) not active LOW as originally coded
+  - Added IAMBIC_ACTIVE and IAMBIC_INACTIVE macros for clarity
+  - All iambic output writes updated to use correct logic
+  - Pins now initialized LOW (inactive) at boot — radio no longer keys on startup
+- Removed invalid RTC_CNTL_WDTCONFIG0_REG and esp_efuse calls that caused compile errors on ESP32-S3
+- Removed unused esp_efuse includes
 
 ---
 
