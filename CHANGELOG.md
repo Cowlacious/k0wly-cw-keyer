@@ -15,6 +15,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.3] — 2026 — Bug Fix: Long File Playback
+
+### Fixed
+- **Long file playback stopping mid-file** — ring buffer wrap-around caused incorrect
+  space calculation when fileElemHead wrapped past 255 back to 0, making the buffer
+  appear full when it wasn't. Fixed with proper wrap-aware free space calculation.
+- **Newlines in text files** now insert a word space on the TX line instead of
+  being silently ignored — lines of text are now clearly separated during playback
+- **Inter-element gap conflict** — separated inter-element gap (after keying ends)
+  from char/word gap using dedicated fileElemGap flag, preventing double-gap issues
+- Added playback watchdog to recover from any stuck playback state
+
+---
+
+## [1.4.3] — 2026 — File Playback Improvements
+
+### Added
+- **Pause/Resume** button on web page — instantly pauses file playback and resumes
+  from approximately the same position (within one character)
+- **Stop Playback** now truly immediate — flushes element buffer and stops audio instantly
+- **Newlines** in text files insert a word space on TX line for cleaner display
+- **Playback watchdog** recovers from any stuck playback state automatically
+
+### Fixed
+- **Long file playback stopping mid-file** — ring buffer wrap-around bug caused
+  incorrect space calculation when fileElemHead wrapped past 255 back to 0.
+  Fixed with proper wrap-aware free space calculation
+- **Separate inter-element gap flag** (fileElemGap) prevents conflict with
+  char/word gap timing that caused occasional playback stalls
+- **Resume near end of file** — file is reopened correctly when pausing after
+  the file has finished reading but buffer is still draining
+
+---
+
 ## [1.4.2] — 2026 — Bug Fix: Iambic Output Logic
 
 ### Fixed
@@ -110,6 +144,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - RX line shows `[Audio Only]` in dim text instead of decoded characters
   - Incoming CW audio plays normally — only the text display is suppressed
   - Perfect for operators who want pure audible head copy with no visual crutch
+
+---
+
+## [1.4.3] — 2026 — Bug Fix: Long File Playback
+
+### Fixed
+- **Long file playback stopping mid-file** — ring buffer wrap-around caused incorrect
+  space calculation when fileElemHead wrapped past 255 back to 0, making the buffer
+  appear full when it wasn't. Fixed with proper wrap-aware free space calculation.
+- **Newlines in text files** now insert a word space on the TX line instead of
+  being silently ignored — lines of text are now clearly separated during playback
+- **Inter-element gap conflict** — separated inter-element gap (after keying ends)
+  from char/word gap using dedicated fileElemGap flag, preventing double-gap issues
+- Added playback watchdog to recover from any stuck playback state
+
+---
+
+## [1.4.3] — 2026 — File Playback Improvements
+
+### Added
+- **Pause/Resume** button on web page — instantly pauses file playback and resumes
+  from approximately the same position (within one character)
+- **Stop Playback** now truly immediate — flushes element buffer and stops audio instantly
+- **Newlines** in text files insert a word space on TX line for cleaner display
+- **Playback watchdog** recovers from any stuck playback state automatically
+
+### Fixed
+- **Long file playback stopping mid-file** — ring buffer wrap-around bug caused
+  incorrect space calculation when fileElemHead wrapped past 255 back to 0.
+  Fixed with proper wrap-aware free space calculation
+- **Separate inter-element gap flag** (fileElemGap) prevents conflict with
+  char/word gap timing that caused occasional playback stalls
+- **Resume near end of file** — file is reopened correctly when pausing after
+  the file has finished reading but buffer is still draining
 
 ---
 

@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.4.2
+//  Version 1.4.3
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -79,7 +79,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.4.2"
+#define FW_VERSION "v1.4.3"
 
 // WiFi AP settings for file upload
 #define AP_SSID     "K0WLY-Keyer"
@@ -105,6 +105,12 @@ static bool     filePlayActive   = false;
 static bool     filePlayPaused   = false;
 static File     playFile;
 static bool     filesAvailable   = false;
+volatile bool   fileKeying       = false;
+static bool     fileInGap        = false;
+static bool     fileElemGap      = false;
+static uint32_t fileGapEndMs     = 0;
+static uint32_t fileElemGapEndMs = 0;
+static size_t   filePlayedPos    = 0;  // file position of last character that started playing
 
 // ── Pin definitions ──────────────────────────────────────────────────────────
 #define PIN_DIT         11
@@ -271,11 +277,13 @@ static const MorseCode morseEncoder[] = {
 #define MORSE_ENCODER_SIZE (sizeof(morseEncoder)/sizeof(morseEncoder[0]))
 
 // File playback element queue
-#define FILE_ELEM_BUF_SIZE 64
+#define FILE_ELEM_BUF_SIZE 256
 struct FileElement { bool isDah; bool isGap; bool isCharGap; bool isWordGap; bool isFirstElement; char displayChar; };
 static FileElement fileElemBuf[FILE_ELEM_BUF_SIZE];
-static volatile uint8_t fileElemHead = 0;
-static volatile uint8_t fileElemTail = 0;
+static volatile uint16_t fileElemHead = 0;
+static volatile uint16_t fileElemTail = 0;
+// Parallel position array — stores file position for each first-element slot
+static size_t fileElemPos[FILE_ELEM_BUF_SIZE];
 
 // File playback char queue for TX display
 #define FILE_CHAR_BUF_SIZE 32
@@ -402,8 +410,8 @@ static void keyer_isr() {
         case KEYER_DIT:
             if (--elementTimer == 0) {
                 digitalWrite(PIN_KEY_OUT, LOW);
-                digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);  // DIT released
-                ledcWrite(LEDC_CHANNEL_LOCAL, 0);
+                digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
+                if (!fileKeying) ledcWrite(LEDC_CHANNEL_LOCAL, 0);
                 elementTimer = gapDitLen_ms;
                 keyerState = KEYER_DIT_GAP;
             }
@@ -443,9 +451,9 @@ static void keyer_isr() {
         case KEYER_DAH:
             if (--elementTimer == 0) {
                 digitalWrite(PIN_KEY_OUT, LOW);
-                digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);  // DAH released
-                ledcWrite(LEDC_CHANNEL_LOCAL, 0);
-                elementTimer = gapDitLen_ms;          // gap speed (Farnsworth)
+                digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
+                if (!fileKeying) ledcWrite(LEDC_CHANNEL_LOCAL, 0);
+                elementTimer = gapDitLen_ms;
                 keyerState = KEYER_DAH_GAP;
             }
             break;
@@ -1198,6 +1206,23 @@ void loadSettings() {
 }
 
 // ── File playback helpers ─────────────────────────────────────────────────────
+void stopFilePlayback() {
+    filePlayActive = false;
+    filePlayPaused = false;
+    if (playFile) playFile.close();
+    // Flush element buffer immediately
+    fileElemHead = 0;
+    fileElemTail = 0;
+    fileKeying   = false;
+    fileInGap    = false;
+    fileElemGap  = false;
+    // Stop audio and radio outputs
+    ledcWrite(LEDC_CHANNEL_LOCAL, 0);
+    digitalWrite(PIN_KEY_OUT, LOW);
+    digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
+    digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
+}
+
 void startFilePlayback(String name) {
     if (!name.startsWith("/")) name = "/" + name;
     if (!LittleFS.exists(name)) return;
@@ -1206,6 +1231,9 @@ void startFilePlayback(String name) {
     if (playFile) {
         filePlayActive  = true;
         filePlayPaused  = false;
+        // Setup LEDC once for file playback
+        ledcSetup(LEDC_CHANNEL_LOCAL, localFreq, LEDC_RES_BITS);
+        ledcAttachPin(PIN_SIDETONE, LEDC_CHANNEL_LOCAL);
         // Clear TX line for fresh start
         memset(txLine, 0, sizeof(txLine));
         drawTXLine();
@@ -1240,9 +1268,13 @@ void queueCharMorse(char c) {
     // Convert to uppercase
     if (c >= 'a' && c <= 'z') c -= 32;
 
+    // Treat newline as word space, ignore carriage return
+    if (c == '\r') return;
+    if (c == '\n') c = ' ';
+
     // Handle space — word gap
     if (c == ' ') {
-        uint8_t next = (fileElemHead + 1) % FILE_ELEM_BUF_SIZE;
+        uint16_t next = (fileElemHead + 1) % FILE_ELEM_BUF_SIZE;
         if (next != fileElemTail) {
             fileElemBuf[fileElemHead] = {false, false, false, true, false, ' '};
             fileElemHead = next;
@@ -1260,7 +1292,7 @@ void queueCharMorse(char c) {
     bool firstElem = true;
     for (int i = 0; code[i]; i++) {
         // Add element — mark first one with display char
-        uint8_t next = (fileElemHead + 1) % FILE_ELEM_BUF_SIZE;
+        uint16_t next = (fileElemHead + 1) % FILE_ELEM_BUF_SIZE;
         if (next != fileElemTail) {
             fileElemBuf[fileElemHead] = {code[i] == '-', false, false, false, firstElem, firstElem ? (char)c : (char)0};
             fileElemHead = next;
@@ -1314,6 +1346,7 @@ button.swap{background:#f39c12;color:#000;width:100%}
 <h2>&#9654; Practice Files</h2>
 <div id="fileList">Loading...</div>
 <button class="del" style="width:100%;margin-top:10px" onclick="stopPlay()">&#9646;&#9646; Stop Playback</button>
+<button class="play" style="width:100%;margin-top:6px" onclick="pausePlay()">&#9646;&#9654; Pause / Resume</button>
 </div>
 <div class="card">
 <h2>&#8679; Upload Text File</h2>
@@ -1367,6 +1400,12 @@ function deleteFile(name){
   fetch('/delete?name='+encodeURIComponent(name)).then(r=>r.text()).then(t=>{loadFiles();});
 }
 function stopPlay(){fetch('/stop');}
+function pausePlay(){
+  fetch('/pause').then(r=>r.text()).then(t=>{
+    document.getElementById('uploadStatus').innerText=t;
+    setTimeout(()=>document.getElementById('uploadStatus').innerText='',2000);
+  });
+}
 loadFiles();
 </script>
 </body></html>
@@ -1381,6 +1420,36 @@ void setupWebServer() {
     webServer.on("/swap", HTTP_GET, [](AsyncWebServerRequest *req) {
         paddleReverse = !paddleReverse;
         req->send(200, "text/plain", paddleReverse ? "Dit/Dah SWAPPED" : "Dit/Dah NORMAL");
+    });
+
+    webServer.on("/pause", HTTP_GET, [](AsyncWebServerRequest *req) {
+        if (filePlayActive || fileElemHead != fileElemTail || filePlayPaused) {
+            filePlayPaused = !filePlayPaused;
+            if (filePlayPaused) {
+                // Save current file name before closing
+                String fname = playFile ? String(playFile.name()) : String(fileList[currentFileIdx]);
+                fileElemHead = 0;
+                fileElemTail = 0;
+                fileKeying   = false;
+                fileInGap    = false;
+                fileElemGap  = false;
+                ledcWrite(LEDC_CHANNEL_LOCAL, 0);
+                digitalWrite(PIN_KEY_OUT, LOW);
+                digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
+                digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
+                // Reopen file at played position for clean resume
+                if (playFile) playFile.close();
+                if (!fname.startsWith("/")) fname = "/" + fname;
+                playFile = LittleFS.open(fname, "r");
+                if (playFile) playFile.seek(filePlayedPos);
+                filePlayActive = true;
+                req->send(200, "text/plain", "PAUSED");
+            } else {
+                req->send(200, "text/plain", "RESUMED");
+            }
+        } else {
+            req->send(200, "text/plain", "Nothing playing");
+        }
     });
 
     // List files as JSON
@@ -1412,9 +1481,7 @@ void setupWebServer() {
 
     // Stop playback
     webServer.on("/stop", HTTP_GET, [](AsyncWebServerRequest *req) {
-        filePlayActive = false;
-        filePlayPaused = false;
-        if (playFile) playFile.close();
+        stopFilePlayback();
         req->send(200, "text/plain", "Stopped");
     });
 
@@ -1861,18 +1928,22 @@ void loop() {
     serviceRemoteElements();
 
     // ── File playback ─────────────────────────────────────────────────────────
-    static uint32_t lastFileRead = 0;
-    if (filePlayActive && !filePlayPaused && playFile && (now - lastFileRead >= 10)) {
-        lastFileRead = now;
-        // Only read next char if element queue has space
-        if (((fileElemHead + 4) % FILE_ELEM_BUF_SIZE) != fileElemTail) {
+    if (filePlayActive && !filePlayPaused && playFile) {
+        // Calculate actual free space in ring buffer (handling wrap)
+        uint16_t h = fileElemHead;
+        uint16_t t = fileElemTail;
+        uint16_t used = (h >= t) ? (h - t) : (FILE_ELEM_BUF_SIZE - t + h);
+        uint16_t free = FILE_ELEM_BUF_SIZE - 1 - used;
+        if (free >= 12) {
+            size_t posBeforeRead = playFile.position();
             int c = playFile.read();
             if (c == -1) {
-                // End of file
                 filePlayActive = false;
                 playFile.close();
                 Serial.println("File playback complete");
             } else {
+                // Store file position at current head for this character
+                fileElemPos[fileElemHead] = posBeforeRead;
                 queueCharMorse((char)c);
             }
         }
@@ -1881,17 +1952,38 @@ void loop() {
     // ── File element playback via keyer task ──────────────────────────────────
     // File elements are played via a separate check in loop since keyer task
     // owns the sidetone — we inject into the sidetone here when keyer is idle
-    static bool     fileKeying    = false;
     static uint32_t fileKeyEndMs  = 0;
-    static uint32_t fileGapEndMs  = 0;
-    static bool     fileInGap     = false;
-    static char     filePendingChar = 0;  // character waiting to display at char gap
+    static char     filePendingChar = 0;
+    static uint32_t lastElemProgress = 0;
+    static uint16_t lastElemTail = 0;
 
-    if (!fileKeying && !fileInGap && fileElemTail != fileElemHead &&
+    // ── File playback watchdog ────────────────────────────────────────────────
+    {
+        uint16_t elemH = fileElemHead;
+        uint16_t elemT = fileElemTail;
+        if (elemT != elemH) {
+            if (elemT != lastElemTail) {
+                lastElemTail = elemT;
+                lastElemProgress = now;
+            } else if (now - lastElemProgress > (gapDitLen_ms * 4 + 200)) {
+                // Watchdog — reset stuck playback state
+                fileInGap = false;
+                fileElemGap = false;
+                fileKeying = false;
+                ditMemory = false;
+                dahMemory = false;
+                lastElemProgress = now;
+            }
+        }
+    }
+
+    uint16_t elemH = fileElemHead;
+    uint16_t elemT = fileElemTail;
+    if (!fileKeying && !fileInGap && !fileElemGap && elemT != elemH &&
         keyerState == KEYER_IDLE && !ditMemory && !dahMemory) {
-        FileElement &el = fileElemBuf[fileElemTail];
-        fileElemTail = (fileElemTail + 1) % FILE_ELEM_BUF_SIZE;
-
+        FileElement el = fileElemBuf[elemT];
+        uint16_t elIdx = elemT;  // save index before increment
+        fileElemTail = (elemT + 1) % FILE_ELEM_BUF_SIZE;
         uint32_t ditMs  = charDitLen_ms;
         uint32_t gapMs  = gapDitLen_ms;
 
@@ -1919,6 +2011,7 @@ void loop() {
             // Store char for display at char gap (when first element plays)
             if (el.isFirstElement && el.displayChar) {
                 filePendingChar = el.displayChar;
+                filePlayedPos = fileElemPos[elIdx];
             }
             ledcSetup(LEDC_CHANNEL_LOCAL, localFreq, LEDC_RES_BITS);
             ledcAttachPin(PIN_SIDETONE, LEDC_CHANNEL_LOCAL);
@@ -1941,18 +2034,20 @@ void loop() {
     if (fileKeying && now >= fileKeyEndMs) {
         ledcWrite(LEDC_CHANNEL_LOCAL, 0);
         digitalWrite(PIN_KEY_OUT, LOW);
-        // Release iambic outputs
         digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
         digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
         fileKeying = false;
-        // Start inter-element gap
-        fileInGap    = true;
-        fileGapEndMs = now + charDitLen_ms;
+        fileElemGap = true;
+        fileElemGapEndMs = now + charDitLen_ms;
+    }
+
+    if (fileElemGap && now >= fileElemGapEndMs) {
+        fileElemGap = false;
     }
 
     if (fileInGap && now >= fileGapEndMs) {
         fileInGap = false;
     }
 
-    delay(5);
+    vTaskDelay(pdMS_TO_TICKS(1));  // yield to other tasks, 1ms instead of 5ms
 }
