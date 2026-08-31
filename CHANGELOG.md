@@ -15,20 +15,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.4.3] — 2026 — Bug Fix: Long File Playback
-
-### Fixed
-- **Long file playback stopping mid-file** — ring buffer wrap-around caused incorrect
-  space calculation when fileElemHead wrapped past 255 back to 0, making the buffer
-  appear full when it wasn't. Fixed with proper wrap-aware free space calculation.
-- **Newlines in text files** now insert a word space on the TX line instead of
-  being silently ignored — lines of text are now clearly separated during playback
-- **Inter-element gap conflict** — separated inter-element gap (after keying ends)
-  from char/word gap using dedicated fileElemGap flag, preventing double-gap issues
-- Added playback watchdog to recover from any stuck playback state
-
----
-
 ## [1.4.3] — 2026 — File Playback Improvements
 
 ### Added
