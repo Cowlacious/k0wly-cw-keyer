@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.4.3
+//  Version 1.4.4
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -79,7 +79,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.4.3"
+#define FW_VERSION "v1.4.4"
 
 // WiFi AP settings for file upload
 #define AP_SSID     "K0WLY-Keyer"
@@ -170,6 +170,7 @@ volatile uint32_t headCopyDelayMs = 0;     // incoming char display delay
 volatile uint8_t  wordGapDits     = 0;     // 0=off, 4-9 = word gap threshold in dits
 volatile bool     paddleReverse   = false;
 volatile bool     straightKey     = false; // false = iambic, true = straight key
+volatile bool     iambicModeB     = false; // false = Mode A, true = Mode B
 
 // Convenience: character WPM and Farnsworth effective WPM
 static inline uint32_t charWPM() { return 1200 / charDitLen_ms; }
@@ -368,8 +369,10 @@ static void keyer_isr() {
     // During gaps/idle: latch both paddles freely (enables auto-repeat and squeeze keying)
     if (keyerState == KEYER_DIT) {
         if (dah_p) dahMemory = true;
+        if (iambicModeB && dit_p) ditMemory = true;  // Mode B: latch same paddle
     } else if (keyerState == KEYER_DAH) {
         if (dit_p) ditMemory = true;
+        if (iambicModeB && dah_p) dahMemory = true;  // Mode B: latch same paddle
     } else {
         if (dit_p) ditMemory = true;
         if (dah_p) dahMemory = true;
@@ -844,13 +847,13 @@ void drawHeader() {
     }
     uint16_t wpmColor = (potMode == POT_WPM) ? C_YELLOW : C_WHITE;
     drawString(x, 8, tmp, wpmColor, C_DARKGRAY, 2);
-    x += strlen(tmp) * 12 + 8;
+    x += strlen(tmp) * 12 + 9;
 
     // FREQ
     snprintf(tmp, sizeof(tmp), "%luHz", localFreq);
     uint16_t freqColor = (potMode == POT_FREQ) ? C_CYAN : C_WHITE;
     drawString(x, 8, tmp, freqColor, C_DARKGRAY, 2);
-    x += strlen(tmp) * 12 + 8;
+    x += strlen(tmp) * 12 + 9;
 
     // DELAY
     if (headCopyDelayMs == DELAY_AO_MODE) {
@@ -860,13 +863,13 @@ void drawHeader() {
     }
     uint16_t dlyColor = (potMode == POT_DELAY) ? C_ORANGE : C_WHITE;
     drawString(x, 8, tmp, dlyColor, C_DARKGRAY, 2);
-    x += strlen(tmp) * 12 + 8;
+    x += strlen(tmp) * 12 + 9;
 
     // VOL
     snprintf(tmp, sizeof(tmp), "VOL:%d%%", (sidetone_duty * 100) / 200);
     uint16_t volColor = (potMode == POT_VOL) ? C_MAGENTA : C_WHITE;
     drawString(x, 8, tmp, volColor, C_DARKGRAY, 2);
-    x += strlen(tmp) * 12 + 8;
+    x += strlen(tmp) * 12 + 9;
 
     // GAP
     if (wordGapDits == 0) {
@@ -876,15 +879,17 @@ void drawHeader() {
     }
     uint16_t gapColor = (potMode == POT_GAP) ? C_GREEN : C_WHITE;
     drawString(x, 8, tmp, gapColor, C_DARKGRAY, 2);
+    x += strlen(tmp) * 12 + 9;
 
-    // SK/IAM — right side
-    const char *keyModeStr = straightKey ? "SK" : "IAM";
-    drawString(SCR_W - 108, 8, keyModeStr, C_WHITE, C_DARKGRAY, 2);
+    // A/B/SK — key mode, right after GAP
+    const char *keyModeStr = straightKey ? "SK" : (iambicModeB ? "B" : "A");
+    drawString(x, 8, keyModeStr, C_WHITE, C_DARKGRAY, 2);
+    x += strlen(keyModeStr) * 12 + 9;
 
-    // SOLO/DUAL — far right
+    // SOLO/DUAL — right after A/B
     const char *modeStr = peerFound ? "DUAL" : "SOLO";
     uint16_t modeColor = peerFound ? C_GREEN : C_WHITE;
-    drawString(SCR_W - 60, 8, modeStr, modeColor, C_DARKGRAY, 2);
+    drawString(x, 8, modeStr, modeColor, C_DARKGRAY, 2);
 
     flushBand(HEADER_Y, HEADER_H);
 }
@@ -1167,6 +1172,7 @@ void saveSettings() {
     prefs.putUInt("delay",    headCopyDelayMs);
     prefs.putUChar("vol",     sidetone_duty);
     prefs.putUChar("gap",     wordGapDits);
+    prefs.putBool("modeB",    iambicModeB);
     prefs.end();
 }
 
@@ -1175,21 +1181,23 @@ void loadSettings() {
     uint8_t ver = prefs.getUChar("ver", 0);
     prefs.end();
 
-    if (ver < 3) {
+    if (ver < 4) {
         charDitLen_ms   = 60;   // 20 WPM
         gapDitLen_ms    = 60;   // no Farnsworth
         localFreq       = 700;
         headCopyDelayMs = 0;
         sidetone_duty   = 128;
         wordGapDits     = 0;
+        iambicModeB     = false;
         prefs.begin("keyer", false);
-        prefs.putUChar("ver",     3);
+        prefs.putUChar("ver",     4);
         prefs.putUInt ("charDit", charDitLen_ms);
         prefs.putUInt ("gapDit",  gapDitLen_ms);
         prefs.putUInt ("freq",    localFreq);
         prefs.putUInt ("delay",   headCopyDelayMs);
         prefs.putUChar("vol",     sidetone_duty);
         prefs.putUChar("gap",     wordGapDits);
+        prefs.putBool ("modeB",   iambicModeB);
         prefs.end();
         Serial.println("NVS: defaults written");
     } else {
@@ -1200,6 +1208,7 @@ void loadSettings() {
         headCopyDelayMs = prefs.getUInt ("delay",   0);
         sidetone_duty   = prefs.getUChar("vol",     128);
         wordGapDits     = prefs.getUChar("gap",     0);
+        iambicModeB     = prefs.getBool ("modeB",   false);
         prefs.end();
         Serial.println("NVS: settings loaded");
     }
@@ -1691,20 +1700,41 @@ void loop() {
     uint32_t now = millis();
 
     // ── Paddle reverse button ────────────────────────────────────────────────
-    // ── Paddle reverse button (GPIO16) — dit/dah swap only ───────────────────
+    // ── Paddle reverse button (GPIO16) — short=dit/dah swap, long=Mode A/B ──
     if (now - lastRevCheck >= 50) {
         lastRevCheck = now;
         static bool lastRevBtn = HIGH;
+        static uint32_t revPressedAt = 0;
+        static bool revLongFired = false;
         bool cur = digitalRead(PIN_REVERSE);
-        if (lastRevBtn == LOW && cur == HIGH) {
-            paddleReverse = !paddleReverse;
+
+        if (lastRevBtn == HIGH && cur == LOW) {
+            revPressedAt = now;
+            revLongFired = false;
         }
+
+        if (cur == LOW && !revLongFired) {
+            if (now - revPressedAt >= LONG_PRESS_MS) {
+                revLongFired = true;
+                iambicModeB = !iambicModeB;
+                drawHeader();
+                saveSettings();
+                drawHeader();
+            }
+        }
+
+        if (lastRevBtn == LOW && cur == HIGH) {
+            if (!revLongFired) {
+                paddleReverse = !paddleReverse;
+            }
+        }
+
         lastRevBtn = cur;
     }
 
     // ── Straight key / iambic toggle (GPIO15) ───────────────────────────────
     // Uncomment when SK switch is physically wired to GPIO15
-    /*
+    // ── Straight key / iambic mode switch (GPIO15) ───────────────────────────
     {
         static bool lastKeyMode = HIGH;
         bool cur = digitalRead(PIN_KEY_MODE);
@@ -1714,7 +1744,6 @@ void loop() {
             drawHeader();
         }
     }
-    */
 
     // ── Pot mode button (short press = next mode, long press = edit mode) ───────
     if (now - lastModeCheck >= 20) {  // 20ms debounce poll
@@ -1790,8 +1819,8 @@ void loop() {
                     uint32_t newDit = 1200 / wpm;
                     if (newDit != charDitLen_ms) {
                         charDitLen_ms = newDit;
-                        // Keep Farnsworth <= character speed
-                        if (gapDitLen_ms < charDitLen_ms) gapDitLen_ms = charDitLen_ms;
+                        // Keep gap speed <= char speed (in ms: gap >= char means gap is slower/equal)
+                        if (gapDitLen_ms > charDitLen_ms) gapDitLen_ms = charDitLen_ms;
                         changed = true;
                     }
                 } else {
