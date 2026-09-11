@@ -17,7 +17,7 @@ A full-featured two-way CW (Morse code) keyer built on the LilyGO T-Display S3 A
 
 ## Features
 
-- **Iambic Mode A keyer** with adjustable speed (5–40 WPM)
+- **Iambic Mode A/B keyer** with adjustable speed (5–40 WPM)
 - **Straight key mode** selectable via hardware switch
 - **Adjustable sidetone frequency** (400–900 Hz) — each unit independent
 - **Logarithmic volume control** via PWM, works for speaker and headphones
