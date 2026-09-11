@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.4.4
+//  Version 1.4.5
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -79,7 +79,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.4.4"
+#define FW_VERSION "v1.4.5"
 
 // WiFi AP settings for file upload
 #define AP_SSID     "K0WLY-Keyer"
@@ -404,12 +404,11 @@ static void keyer_isr() {
     // During active element: only latch OPPOSITE paddle (prevents same-element double-fire)
     // During gaps/idle: latch both paddles freely (enables auto-repeat and squeeze keying)
     if (keyerState == KEYER_DIT) {
-        if (dah_p) dahMemory = true;
-        if (iambicModeB && dit_p) ditMemory = true;  // Mode B: latch same paddle
+        if (iambicModeB && dah_p) dahMemory = true;  // Mode B: latch during element
     } else if (keyerState == KEYER_DAH) {
-        if (dit_p) ditMemory = true;
-        if (iambicModeB && dah_p) dahMemory = true;  // Mode B: latch same paddle
+        if (iambicModeB && dit_p) ditMemory = true;  // Mode B: latch during element
     } else {
+        // In gap states and idle — both modes latch paddles freely
         if (dit_p) ditMemory = true;
         if (dah_p) dahMemory = true;
     }

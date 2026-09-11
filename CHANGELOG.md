@@ -15,6 +15,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.5] — 2026 — Bug Fix: Iambic Mode A/B Logic
+
+### Fixed
+- **Iambic Mode A was incorrectly implemented** — it was latching opposite paddle
+  memory during active elements, which is Mode B behavior. Mode A correctly does
+  NOT latch any memory during an active element; the opposite paddle must be
+  pressed during the inter-element gap to register.
+- **Mode B now correctly defined** — latches opposite paddle memory during active
+  elements, allowing the next element to be queued early for smoother squeeze keying.
+- The original firmware (before v1.4.4) was always behaving as Mode B regardless
+  of the mode setting.
+
+---
+
 ## [1.4.4] — 2026 — Iambic Mode A/B Selection
 
 ### Added
@@ -43,6 +57,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Inter-element gap conflict** — separated inter-element gap (after keying ends)
   from char/word gap using dedicated fileElemGap flag, preventing double-gap issues
 - Added playback watchdog to recover from any stuck playback state
+
+---
+
+## [1.4.5] — 2026 — Bug Fix: Iambic Mode A/B Logic
+
+### Fixed
+- **Iambic Mode A was incorrectly implemented** — it was latching opposite paddle
+  memory during active elements, which is Mode B behavior. Mode A correctly does
+  NOT latch any memory during an active element; the opposite paddle must be
+  pressed during the inter-element gap to register.
+- **Mode B now correctly defined** — latches opposite paddle memory during active
+  elements, allowing the next element to be queued early for smoother squeeze keying.
+- The original firmware (before v1.4.4) was always behaving as Mode B regardless
+  of the mode setting.
 
 ---
 
@@ -181,6 +209,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.5] — 2026 — Bug Fix: Iambic Mode A/B Logic
+
+### Fixed
+- **Iambic Mode A was incorrectly implemented** — it was latching opposite paddle
+  memory during active elements, which is Mode B behavior. Mode A correctly does
+  NOT latch any memory during an active element; the opposite paddle must be
+  pressed during the inter-element gap to register.
+- **Mode B now correctly defined** — latches opposite paddle memory during active
+  elements, allowing the next element to be queued early for smoother squeeze keying.
+- The original firmware (before v1.4.4) was always behaving as Mode B regardless
+  of the mode setting.
+
+---
+
 ## [1.4.4] — 2026 — Iambic Mode A/B Selection
 
 ### Added
@@ -209,6 +251,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Inter-element gap conflict** — separated inter-element gap (after keying ends)
   from char/word gap using dedicated fileElemGap flag, preventing double-gap issues
 - Added playback watchdog to recover from any stuck playback state
+
+---
+
+## [1.4.5] — 2026 — Bug Fix: Iambic Mode A/B Logic
+
+### Fixed
+- **Iambic Mode A was incorrectly implemented** — it was latching opposite paddle
+  memory during active elements, which is Mode B behavior. Mode A correctly does
+  NOT latch any memory during an active element; the opposite paddle must be
+  pressed during the inter-element gap to register.
+- **Mode B now correctly defined** — latches opposite paddle memory during active
+  elements, allowing the next element to be queued early for smoother squeeze keying.
+- The original firmware (before v1.4.4) was always behaving as Mode B regardless
+  of the mode setting.
 
 ---
 
