@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.4.5
+//  Version 1.4.6
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -12,7 +12,7 @@
 //  Attribution to K0WLY must be retained on all copies and derivatives.
 //
 //  FEATURES:
-//    - Iambic Mode A keyer with sidetone (or straight key via GPIO15 switch)
+//    - Iambic Mode A / Mode B / Ultimatic keyer with sidetone (or straight key via GPIO15 switch)
 //    - ESP-NOW peer-to-peer WiFi (auto-discovery, no router needed)
 //    - Two-way CW: outgoing keyed locally, transmitted to peer
 //    - Incoming CW replayed with sender's frequency + shown on screen
@@ -79,7 +79,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.4.5"
+#define FW_VERSION "v1.4.6"
 
 // WiFi AP settings for file upload
 #define AP_SSID     "K0WLY-Keyer"
@@ -170,7 +170,9 @@ volatile uint32_t headCopyDelayMs = 0;     // incoming char display delay
 volatile uint8_t  wordGapDits     = 0;     // 0=off, 4-9 = word gap threshold in dits
 volatile bool     paddleReverse   = false;
 volatile bool     straightKey     = false; // false = iambic, true = straight key
-volatile bool     iambicModeB     = false; // false = Mode A, true = Mode B
+// Paddle keying mode — cycled by GPIO16 long press
+typedef enum { KEYER_MODE_A = 0, KEYER_MODE_B, KEYER_MODE_ULTIMATIC, KEYER_MODE_COUNT } KeyerMode;
+volatile uint8_t  keyerMode       = KEYER_MODE_A;
 
 // Convenience: character WPM and Farnsworth effective WPM
 static inline uint32_t charWPM() { return 1200 / charDitLen_ms; }
@@ -188,6 +190,7 @@ volatile KeyerState keyerState   = KEYER_IDLE;
 volatile uint32_t   elementTimer = 0;
 volatile bool       ditMemory    = false;
 volatile bool       dahMemory    = false;
+volatile bool       lastPaddleDah = false; // Ultimatic: most recently pressed paddle
 
 // ── Morse decoder ─────────────────────────────────────────────────────────────
 // Binary tree: dit = pos*2+1, dah = pos*2+2
@@ -400,17 +403,32 @@ static void keyer_isr() {
 
     if (paddleReverse) { bool t = dit_p; dit_p = dah_p; dah_p = t; }
 
+    // Track which paddle was pressed most recently (used by Ultimatic)
+    static bool prevDit = false, prevDah = false;
+    if (dit_p && !prevDit) lastPaddleDah = false;
+    if (dah_p && !prevDah) lastPaddleDah = true;
+    prevDit = dit_p;
+    prevDah = dah_p;
+
     // Iambic memory latching:
     // During active element: only latch OPPOSITE paddle (prevents same-element double-fire)
     // During gaps/idle: latch both paddles freely (enables auto-repeat and squeeze keying)
+    bool latchInElement = (keyerMode != KEYER_MODE_A);  // Mode B and Ultimatic
     if (keyerState == KEYER_DIT) {
-        if (iambicModeB && dah_p) dahMemory = true;  // Mode B: latch during element
+        if (latchInElement && dah_p) dahMemory = true;
     } else if (keyerState == KEYER_DAH) {
-        if (iambicModeB && dit_p) ditMemory = true;  // Mode B: latch during element
+        if (latchInElement && dit_p) ditMemory = true;
     } else {
-        // In gap states and idle — both modes latch paddles freely
+        // In gap states and idle — all modes latch paddles freely
         if (dit_p) ditMemory = true;
         if (dah_p) dahMemory = true;
+    }
+
+    // Ultimatic: when both paddles are pending, the last one pressed wins
+    // (instead of alternating), so squeezing repeats the newer element.
+    if (keyerMode == KEYER_MODE_ULTIMATIC && ditMemory && dahMemory) {
+        if (lastPaddleDah) ditMemory = false;
+        else               dahMemory = false;
     }
 
     switch (keyerState) {
@@ -917,7 +935,8 @@ void drawHeader() {
     x += strlen(tmp) * 12 + 9;
 
     // A/B/SK — key mode, right after GAP
-    const char *keyModeStr = straightKey ? "SK" : (iambicModeB ? "B" : "A");
+    static const char *const keyerModeStr[KEYER_MODE_COUNT] = { "A", "B", "U" };
+    const char *keyModeStr = straightKey ? "SK" : keyerModeStr[keyerMode];
     drawString(x, 8, keyModeStr, C_WHITE, C_DARKGRAY, 2);
     x += strlen(keyModeStr) * 12 + 9;
 
@@ -1207,7 +1226,7 @@ void saveSettings() {
     prefs.putUInt("delay",    headCopyDelayMs);
     prefs.putUChar("vol",     sidetone_duty);
     prefs.putUChar("gap",     wordGapDits);
-    prefs.putBool("modeB",    iambicModeB);
+    prefs.putUChar("kmode",   keyerMode);
     prefs.end();
 }
 
@@ -1223,7 +1242,7 @@ void loadSettings() {
         headCopyDelayMs = 0;
         sidetone_duty   = 128;
         wordGapDits     = 0;
-        iambicModeB     = false;
+        keyerMode       = KEYER_MODE_A;
         prefs.begin("keyer", false);
         prefs.putUChar("ver",     4);
         prefs.putUInt ("charDit", charDitLen_ms);
@@ -1232,7 +1251,7 @@ void loadSettings() {
         prefs.putUInt ("delay",   headCopyDelayMs);
         prefs.putUChar("vol",     sidetone_duty);
         prefs.putUChar("gap",     wordGapDits);
-        prefs.putBool ("modeB",   iambicModeB);
+        prefs.putUChar("kmode",   keyerMode);
         prefs.end();
         Serial.println("NVS: defaults written");
     } else {
@@ -1243,7 +1262,10 @@ void loadSettings() {
         headCopyDelayMs = prefs.getUInt ("delay",   0);
         sidetone_duty   = prefs.getUChar("vol",     128);
         wordGapDits     = prefs.getUChar("gap",     0);
-        iambicModeB     = prefs.getBool ("modeB",   false);
+        // "kmode" replaces the older "modeB" bool; fall back to it if not yet saved
+        keyerMode       = prefs.getUChar("kmode",
+                              prefs.getBool("modeB", false) ? KEYER_MODE_B : KEYER_MODE_A);
+        if (keyerMode >= KEYER_MODE_COUNT) keyerMode = KEYER_MODE_A;
         prefs.end();
         Serial.println("NVS: settings loaded");
     }
@@ -1735,7 +1757,7 @@ void loop() {
     uint32_t now = millis();
 
     // ── Paddle reverse button ────────────────────────────────────────────────
-    // ── Paddle reverse button (GPIO16) — short=dit/dah swap, long=Mode A/B ──
+    // ── Paddle reverse button (GPIO16) — short=dit/dah swap, long=Mode A/B/U ─
     if (now - lastRevCheck >= 50) {
         lastRevCheck = now;
         static bool lastRevBtn = HIGH;
@@ -1751,7 +1773,7 @@ void loop() {
         if (cur == LOW && !revLongFired) {
             if (now - revPressedAt >= LONG_PRESS_MS) {
                 revLongFired = true;
-                iambicModeB = !iambicModeB;
+                keyerMode = (keyerMode + 1) % KEYER_MODE_COUNT;
                 drawHeader();
                 saveSettings();
                 drawHeader();

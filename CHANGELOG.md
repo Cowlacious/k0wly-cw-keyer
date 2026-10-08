@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.6] — 2026 — Ultimatic Keying Mode
+
+### Added
+- **Ultimatic keying mode** — when both paddles are squeezed, the paddle pressed
+  most recently takes over and repeats (instead of alternating as in iambic).
+  Pressing the opposite paddle during an element is remembered, as in Mode B.
+- GPIO16 long press now cycles **A → B → U**; header shows `U` in Ultimatic mode
+
+### Changed
+- Keyer mode stored in NVS as `kmode` (replaces the `modeB` flag). Existing
+  Mode A/B settings carry over automatically — no settings reset.
+
+---
+
 ## [1.2.1] — 2026 — Bug Fix: Receive Audio Not Playing
 
 ### Fixed
