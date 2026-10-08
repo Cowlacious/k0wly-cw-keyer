@@ -11,7 +11,7 @@ A full-featured two-way CW (Morse code) keyer built on the LilyGO T-Display S3 A
 
 ![K0WLY CW Keyer — Top View](images/Keyer_in_enclosure.jpg)
 
-![K0WLY CW Keyer — System View]([images/keyer_system.jpg](images/Keyer_in_enclosure_NoLid.jpg)
+![K0WLY CW Keyer — System View](images/Keyer_in_enclosure_NoLid.jpg)
 
 ![K0WLY CW Keyer — Parts View](images/Keyer_in_enclosure.jpg)
 
