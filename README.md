@@ -104,24 +104,28 @@ GPIO13 ── 470Ω ── Base  2N4401 #2
 
 ### platformio.ini
 
+This is the project's `firmware/platformio.ini`. It uses the custom board definition in `firmware/boards/` and the partition table in `firmware/partitions.csv`.
+
 ```ini
+[platformio]
+boards_dir = ./boards
+
 [env:t_display_s3_amoled]
 platform = espressif32
-board = esp32-s3-devkitm-1
+board = lilygo-t-amoled
 framework = arduino
-board_build.mcu = esp32s3
-board_build.f_cpu = 240000000L
-board_build.flash_size = 16MB
-board_build.flash_mode = dio
-board_build.psram_type = opi
-board_upload.flash_size = 16MB
 monitor_speed = 115200
+board_build.partitions = partitions.csv
+board_build.filesystem = littlefs
 build_flags =
-    -DARDUINO_USB_CDC_ON_BOOT=1
     -DBOARD_HAS_PSRAM
+    -DARDUINO_USB_CDC_ON_BOOT=1
+    -DASYNCWEBSERVER_REGEX=0
 lib_deps =
     https://github.com/Xinyuan-LilyGO/LilyGo-AMOLED-Series
     https://github.com/moononournation/Arduino_GFX#v1.4.7
+    https://github.com/ESP32Async/AsyncTCP
+    https://github.com/ESP32Async/ESPAsyncWebServer
 ```
 
 ### Building and Flashing
@@ -225,17 +229,13 @@ Replace `COM3` with your actual port:
 
 If connection fails, hold **BOOT**, press **RST**, release **BOOT**, then run the command.
 
-### Option 3 — OTA via Web Browser (experimental)
-
-Connect to the `K0WLY-XXXX` WiFi hotspot and browse to `http://192.168.4.1`. Scroll to the **Firmware Update** section and upload `firmware.bin`. This works on some browsers but may fail on Android Chrome due to browser security restrictions on binary uploads to local addresses. If it fails, use Option 1 or 2.
-
 ### Building from Source
 
 For developers who want to modify the firmware:
 - Install [VS Code](https://code.visualstudio.com/) and the [PlatformIO extension](https://platformio.org/)
 - Clone this repository
 - Open `firmware/` folder in VS Code
-- Copy the `boards/lilygo-t-amoled.json` board definition to `firmware/boards/`
+- The `lilygo-t-amoled` board definition (`firmware/boards/lilygo-t-amoled.json`) and partition table (`firmware/partitions.csv`) are already included
 - Build and upload using PlatformIO
 
 ---
@@ -246,12 +246,15 @@ k0wly-cw-keyer/
 ├── firmware/          # PlatformIO project
 │   ├── src/
 │   │   └── main.cpp
+│   ├── boards/        # lilygo-t-amoled board definition
+│   ├── partitions.csv
 │   └── platformio.ini
-├── hardware/          # Schematic and PCB files (KiCad)
-│   ├── schematic/
-│   └── pcb/
-├── docs/              # Documentation
-│   └── K0WLY_CW_Keyer_Manual.docx
+├── hardware/
+│   ├── schematic/     # Schematic PDFs and BOMs
+│   ├── pcb/           # Gerbers and pick-and-place files
+│   └── enclosure/     # Enclosure 3D models (SolidWorks and STL)
+├── docs/              # Operator's Manual (DOCX and PDF) and User Guide (DOCX)
+├── images/            # Photos and screenshots
 ├── LICENSE            # CERN-OHL-W v2 (hardware + firmware)
 ├── LICENSE-DOCS       # CC BY 4.0 (documentation)
 ├── NOTICE             # Required attribution notice
