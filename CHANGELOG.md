@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.9] — 2026 — Ultimatic Keying Mode
+
+### Added
+- **Ultimatic keying mode** — on a squeeze, the paddle pressed most recently wins
+  and its element repeats while held; releasing it returns to the other paddle.
+  Single-paddle keying is the same as Iambic, and an opposite-paddle tap during
+  an element is remembered as in Mode B.
+- GPIO16 long press now cycles **A → B → U (Ultimatic) → A**; the header shows
+  `U` when Ultimatic is selected.
+
+### Changed
+- Key mode is saved to NVS as `keyMode` (A/B/U). The old `modeB` setting is
+  read as a fallback, so existing units keep their A/B choice after updating.
+---
+
 ## [1.4.8] — 2026 — Bug Fix: CW Timing (Farnsworth and File Playback)
 
 Covers interim builds 1.4.6 and 1.4.7. Timing figures below come from code

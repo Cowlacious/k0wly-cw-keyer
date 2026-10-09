@@ -16,7 +16,7 @@ A full-featured two-way CW (Morse code) keyer built on the LilyGO T-Display S3 A
 
 ## Features
 
-- **Iambic Mode A/B keyer** with adjustable speed (5–40 WPM)
+- **Iambic Mode A/B and Ultimatic keyer** with adjustable speed (5–40 WPM)
 - **Straight key mode** selectable via hardware switch
 - **Adjustable sidetone frequency** (400–900 Hz) — each unit independent
 - **Logarithmic volume control** via PWM, works for speaker and headphones
@@ -159,6 +159,16 @@ lib_deps =
 | Short press | Cycle to next parameter: WPM → FREQ → DELAY → VOL |
 | Long press (1 sec) | Enter/exit edit mode for current parameter |
 | Turn pot (in edit) | Adjust value — saves to flash in real time |
+
+### Paddle Reverse / Key Mode Button (GPIO16)
+
+| Button Action | Result |
+|---|---|
+| Short press | Swap dit/dah paddles |
+| Long press (1 sec) | Cycle key mode: **A** (Iambic A) → **B** (Iambic B) → **U** (Ultimatic) — shown in header, saved to flash |
+
+In **Ultimatic** mode, squeezing both paddles sends the element of whichever
+paddle was pressed last, repeating while it is held, instead of alternating.
 
 ### Two-Way Operation
 
