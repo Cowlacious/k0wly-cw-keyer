@@ -16,7 +16,7 @@ A full-featured two-way CW (Morse code) keyer built on the LilyGO T-Display S3 A
 
 ## Features
 
-- **Iambic Mode A/B keyer** with adjustable speed (5–40 WPM)
+- **Iambic Mode A, Iambic Mode B and Ultimatic keyer modes** with adjustable speed (5–40 WPM)
 - **Straight key mode** selectable via hardware switch
 - **Adjustable sidetone frequency** (400–900 Hz) — each unit independent
 - **Logarithmic volume control** via PWM, works for speaker and headphones
@@ -66,7 +66,7 @@ A full-featured two-way CW (Morse code) keyer built on the LilyGO T-Display S3 A
 | Sidetone | GPIO13 | PWM → 470Ω → 2N4401 |
 | Pot (ADC) | GPIO14 | Wiper of 10–20kΩ pot |
 | Key Mode | GPIO15 | SPST: open=iambic, GND=straight key |
-| Paddle Reverse | GPIO16 | PBNO momentary button |
+| Paddle Reverse | GPIO16 | PBNO momentary button — short press swaps dit/dah, long press (1 sec) cycles keyer mode A → B → U (Ultimatic) |
 | Pot Mode Select | GPIO39 | PBNO momentary button |
 
 ### Audio Circuit Notes

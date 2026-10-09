@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.5.0] — 2026 — Ultimatic Keyer Mode
+
+Adds an Ultimatic mode, contributed by UtahDave in
+[PR #9](https://github.com/Cowlacious/k0wly-cw-keyer/pull/9) and merged onto
+v1.4.10, with one change to how held paddles are remembered. Modes A and B
+are unchanged. Tested on a host simulation only; not yet verified on hardware.
+
+### Added
+- **Ultimatic keyer mode** — when both paddles are squeezed, the paddle pressed
+  most recently takes over and repeats (no alternation). Releasing it returns to
+  the paddle still held, or stops if none is. A new tap of the opposite paddle
+  during an element is remembered and sent next. A paddle that is merely held
+  down is not remembered, so letting go of both paddles stops the keyer after
+  the current element (the letter A sends as A, not R). Source:
+  [morsecode.world](https://morsecode.world/iambic.html).
+  - GPIO16 long press now cycles A → B → U (Ultimatic) → A
+  - Header shows A, B or U after the GAP setting
+
+### Changed
+- Keyer mode is stored in NVS as `kmode` (0=A, 1=B, 2=U) instead of the boolean
+  `modeB`. Existing units keep their A/B setting on first boot.
+- **Manuals** — User Guide and Manual updated to v1.5.0 with the Ultimatic mode;
+  manual PDF regenerated.
+
+### Upgrade notes
+- Going back to an older firmware will not see a mode chosen in 1.5.0, because
+  the old key is no longer updated. The older firmware starts in the A/B mode
+  last saved before the upgrade.
+
+---
+
 ## [1.4.10] — 2026 — Farnsworth Speed Now Means Overall Speed
 
 ### Changed

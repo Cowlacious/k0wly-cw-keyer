@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.4.10
+//  Version 1.5.0
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -12,7 +12,7 @@
 //  Attribution to K0WLY must be retained on all copies and derivatives.
 //
 //  FEATURES:
-//    - Iambic Mode A or B keyer with sidetone (or straight key via GPIO15 switch)
+//    - Iambic Mode A, Iambic Mode B or Ultimatic keyer with sidetone (or straight key via GPIO15 switch)
 //    - ESP-NOW peer-to-peer WiFi (auto-discovery, no router needed)
 //    - Two-way CW: outgoing keyed locally, transmitted to peer
 //    - Incoming CW replayed with sender's frequency + shown on screen
@@ -78,7 +78,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.4.10"
+#define FW_VERSION "v1.5.0"
 
 // WiFi AP settings for file upload
 #define AP_SSID     "K0WLY-Keyer"
@@ -171,7 +171,13 @@ volatile uint32_t headCopyDelayMs = 0;     // incoming char display delay
 volatile uint8_t  wordGapDits     = 0;     // 0=off, 4-9 = word gap threshold in dits
 volatile bool     paddleReverse   = false;
 volatile bool     straightKey     = false; // false = iambic, true = straight key
-volatile bool     iambicModeB     = false; // false = Mode A, true = Mode B
+// Paddle keyer mode — cycled by GPIO16 long press, saved to NVS
+#define KEYER_MODE_A        0   // Iambic A: squeeze alternates, no memory during element
+#define KEYER_MODE_B        1   // Iambic B: squeeze alternates, opposite paddle latched during element
+#define KEYER_MODE_ULTIMATIC 2  // Ultimatic: on squeeze, last-pressed paddle wins and repeats
+#define KEYER_MODE_COUNT    3
+volatile uint8_t  keyerMode       = KEYER_MODE_A;
+volatile bool     lastPaddleDah   = false; // Ultimatic: most recently pressed paddle was DAH
 
 // Convenience: character WPM and Farnsworth effective WPM
 static inline uint32_t charWPM() { return 1200 / charDitLen_ms; }
@@ -442,17 +448,61 @@ static void keyer_isr() {
 
     if (paddleReverse) { bool t = dit_p; dit_p = dah_p; dah_p = t; }
 
-    // Iambic memory latching:
-    // During active element: only latch OPPOSITE paddle (prevents same-element double-fire)
-    // During gaps/idle: latch both paddles freely (enables auto-repeat and squeeze keying)
-    if (keyerState == KEYER_DIT) {
-        if (iambicModeB && dah_p) dahMemory = true;  // Mode B: latch during element
+    // Track which paddle was pressed most recently (used by Ultimatic).
+    // Simultaneous presses in the same tick leave the previous choice unchanged.
+    static bool prevDit = false, prevDah = false;
+    bool ditEdge = dit_p && !prevDit;
+    bool dahEdge = dah_p && !prevDah;
+    if (ditEdge && !dahEdge) lastPaddleDah = false;
+    if (dahEdge && !ditEdge) lastPaddleDah = true;
+    prevDit = dit_p;
+    prevDah = dah_p;
+
+    // Paddle memory latching.
+    if (keyerMode == KEYER_MODE_ULTIMATIC) {
+        // Ultimatic: remember only NEW presses (taps) while an element or gap is
+        // running. A paddle that is merely held is not remembered, so releasing
+        // both paddles stops the keyer after the current element (no extra
+        // trailing element). When the next element is chosen, the paddles are
+        // read as they are at that moment.
+        bool decisionTick = (keyerState == KEYER_IDLE) ||
+            ((keyerState == KEYER_DIT_GAP || keyerState == KEYER_DAH_GAP) && elementTimer == 1);
+        if (keyerState == KEYER_DIT) {
+            if (dahEdge) dahMemory = true;
+        } else if (keyerState == KEYER_DAH) {
+            if (ditEdge) ditMemory = true;
+        } else if (keyerState == KEYER_DIT_GAP || keyerState == KEYER_DAH_GAP) {
+            if (ditEdge) ditMemory = true;
+            if (dahEdge) dahMemory = true;
+            if (decisionTick) {
+                if (dit_p) ditMemory = true;
+                if (dah_p) dahMemory = true;
+            }
+        } else {
+            // Idle, character gap, word gap: a held paddle starts the next character
+            if (dit_p) ditMemory = true;
+            if (dah_p) dahMemory = true;
+        }
+    } else if (keyerState == KEYER_DIT) {
+        // Modes A/B — during active element: only latch OPPOSITE paddle (prevents same-element double-fire)
+        if (keyerMode == KEYER_MODE_B && dah_p) dahMemory = true;  // Mode B: latch during element
     } else if (keyerState == KEYER_DAH) {
-        if (iambicModeB && dit_p) ditMemory = true;  // Mode B: latch during element
+        if (keyerMode == KEYER_MODE_B && dit_p) ditMemory = true;  // Mode B: latch during element
     } else {
-        // In gap states and idle — both modes latch paddles freely
+        // In gap states and idle — latch paddles freely (enables auto-repeat and squeeze keying)
         if (dit_p) ditMemory = true;
         if (dah_p) dahMemory = true;
+    }
+
+    // Ultimatic: when both paddles are pending, the last-pressed one wins
+    // (instead of iambic alternation). Clearing the loser here lets the
+    // existing per-state priority below pick the winner. Only applied where
+    // the next element is chosen, so mid-element latches are kept.
+    if (keyerMode == KEYER_MODE_ULTIMATIC && ditMemory && dahMemory &&
+        (keyerState == KEYER_IDLE ||
+         ((keyerState == KEYER_DIT_GAP || keyerState == KEYER_DAH_GAP) && elementTimer == 1))) {
+        if (lastPaddleDah) ditMemory = false;
+        else               dahMemory = false;
     }
 
     switch (keyerState) {
@@ -954,8 +1004,10 @@ void drawHeader() {
     drawString(x, 8, tmp, gapColor, C_DARKGRAY, 2);
     x += strlen(tmp) * 12 + 9;
 
-    // A/B/SK — key mode, right after GAP
-    const char *keyModeStr = straightKey ? "SK" : (iambicModeB ? "B" : "A");
+    // A/B/U/SK — key mode, right after GAP
+    const char *keyModeStr = straightKey ? "SK" :
+                             keyerMode == KEYER_MODE_B ? "B" :
+                             keyerMode == KEYER_MODE_ULTIMATIC ? "U" : "A";
     drawString(x, 8, keyModeStr, C_WHITE, C_DARKGRAY, 2);
     x += strlen(keyModeStr) * 12 + 9;
 
@@ -1245,7 +1297,7 @@ void saveSettings() {
     prefs.putUInt("delay",    headCopyDelayMs);
     prefs.putUChar("vol",     sidetone_duty);
     prefs.putUChar("gap",     wordGapDits);
-    prefs.putBool("modeB",    iambicModeB);
+    prefs.putUChar("kmode",   keyerMode);
     prefs.end();
 }
 
@@ -1261,7 +1313,7 @@ void loadSettings() {
         headCopyDelayMs = 0;
         sidetone_duty   = 128;
         wordGapDits     = 0;
-        iambicModeB     = false;
+        keyerMode       = KEYER_MODE_A;
         prefs.begin("keyer", false);
         prefs.putUChar("ver",     4);
         prefs.putUInt ("charDit", charDitLen_ms);
@@ -1270,7 +1322,7 @@ void loadSettings() {
         prefs.putUInt ("delay",   headCopyDelayMs);
         prefs.putUChar("vol",     sidetone_duty);
         prefs.putUChar("gap",     wordGapDits);
-        prefs.putBool ("modeB",   iambicModeB);
+        prefs.putUChar("kmode",   keyerMode);
         prefs.end();
         Serial.println("NVS: defaults written");
     } else {
@@ -1281,7 +1333,10 @@ void loadSettings() {
         headCopyDelayMs = prefs.getUInt ("delay",   0);
         sidetone_duty   = prefs.getUChar("vol",     128);
         wordGapDits     = prefs.getUChar("gap",     0);
-        iambicModeB     = prefs.getBool ("modeB",   false);
+        // "kmode" replaced the boolean "modeB" key; migrate units that have only the old key
+        if (prefs.isKey("kmode")) keyerMode = prefs.getUChar("kmode", KEYER_MODE_A);
+        else                      keyerMode = prefs.getBool ("modeB", false) ? KEYER_MODE_B : KEYER_MODE_A;
+        if (keyerMode >= KEYER_MODE_COUNT) keyerMode = KEYER_MODE_A;
         prefs.end();
         Serial.println("NVS: settings loaded");
     }
@@ -1779,7 +1834,7 @@ void loop() {
     uint32_t now = millis();
 
     // ── Paddle reverse button ────────────────────────────────────────────────
-    // ── Paddle reverse button (GPIO16) — short=dit/dah swap, long=Mode A/B ──
+    // ── Paddle reverse button (GPIO16) — short=dit/dah swap, long=Mode A/B/U ──
     if (now - lastRevCheck >= 50) {
         lastRevCheck = now;
         static bool lastRevBtn = HIGH;
@@ -1795,7 +1850,7 @@ void loop() {
         if (cur == LOW && !revLongFired) {
             if (now - revPressedAt >= LONG_PRESS_MS) {
                 revLongFired = true;
-                iambicModeB = !iambicModeB;
+                keyerMode = (keyerMode + 1) % KEYER_MODE_COUNT;  // A → B → Ultimatic → A
                 drawHeader();
                 saveSettings();
                 drawHeader();
