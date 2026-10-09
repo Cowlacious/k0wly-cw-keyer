@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.4.5
+//  Version 1.4.8
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -79,7 +79,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.4.5"
+#define FW_VERSION "v1.4.8"
 
 // WiFi AP settings for file upload
 #define AP_SSID     "K0WLY-Keyer"
@@ -111,6 +111,7 @@ static bool     fileElemGap      = false;
 static uint32_t fileGapEndMs     = 0;
 static uint32_t fileElemGapEndMs = 0;
 static size_t   filePlayedPos    = 0;  // file position of last character that started playing
+static bool     fileLastWasSpace = true; // true if last queued char was a space/newline (collapses line breaks only)
 
 // ── Pin definitions ──────────────────────────────────────────────────────────
 #define PIN_DIT         11
@@ -175,6 +176,9 @@ volatile bool     iambicModeB     = false; // false = Mode A, true = Mode B
 // Convenience: character WPM and Farnsworth effective WPM
 static inline uint32_t charWPM() { return 1200 / charDitLen_ms; }
 static inline uint32_t farnWPM() { return 1200 / gapDitLen_ms; }
+// Effective gap dit length: never shorter than the character dit. Guards the
+// (3 * gap - char) character-gap math against unsigned underflow.
+static inline uint32_t effGapDit() { uint32_t g = gapDitLen_ms, c = charDitLen_ms; return g > c ? g : c; }
 
 // ── Keyer state machine ───────────────────────────────────────────────────────
 typedef enum {
@@ -450,7 +454,7 @@ static void keyer_isr() {
                 digitalWrite(PIN_KEY_OUT, LOW);
                 digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
                 if (!fileKeying) ledcWrite(LEDC_CHANNEL_LOCAL, 0);
-                elementTimer = gapDitLen_ms;
+                elementTimer = charDitLen_ms;   // intra-character gap = 1 char-dit
                 keyerState = KEYER_DIT_GAP;
             }
             break;
@@ -480,7 +484,7 @@ static void keyer_isr() {
                     elementTimer = charDitLen_ms;
                     keyerState = KEYER_DIT;
                 } else {
-                    elementTimer = gapDitLen_ms * 2;
+                    elementTimer = 3 * effGapDit() - charDitLen_ms;  // total char gap = 3 gap-units
                     keyerState = KEYER_CHAR_GAP;
                 }
             }
@@ -491,7 +495,7 @@ static void keyer_isr() {
                 digitalWrite(PIN_KEY_OUT, LOW);
                 digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
                 if (!fileKeying) ledcWrite(LEDC_CHANNEL_LOCAL, 0);
-                elementTimer = gapDitLen_ms;
+                elementTimer = charDitLen_ms;   // intra-character gap = 1 char-dit
                 keyerState = KEYER_DAH_GAP;
             }
             break;
@@ -521,7 +525,7 @@ static void keyer_isr() {
                     elementTimer = charDitLen_ms * 3;
                     keyerState = KEYER_DAH;
                 } else {
-                    elementTimer = gapDitLen_ms * 2;
+                    elementTimer = 3 * effGapDit() - charDitLen_ms;  // total char gap = 3 gap-units
                     keyerState = KEYER_CHAR_GAP;
                 }
             }
@@ -540,7 +544,7 @@ static void keyer_isr() {
                 }
                 morsePos = 0;
                 if (wordGapDits >= 4) {
-                    elementTimer = gapDitLen_ms * (wordGapDits - 3); // gap speed
+                    elementTimer = effGapDit() * (wordGapDits - 3); // gap speed
                     keyerState = KEYER_WORD_GAP;
                 } else {
                     keyerState = KEYER_IDLE;
@@ -1279,6 +1283,7 @@ void startFilePlayback(String name) {
         ledcSetup(LEDC_CHANNEL_LOCAL, localFreq, LEDC_RES_BITS);
         ledcAttachPin(PIN_SIDETONE, LEDC_CHANNEL_LOCAL);
         // Clear TX line for fresh start
+        fileLastWasSpace = true;   // so leading blank lines add no gap
         memset(txLine, 0, sizeof(txLine));
         drawTXLine();
         Serial.println("Playing: " + name);
@@ -1312,12 +1317,19 @@ void queueCharMorse(char c) {
     // Convert to uppercase
     if (c >= 'a' && c <= 'z') c -= 32;
 
-    // Treat newline as word space, ignore carriage return
+    // Ignore carriage return. A newline acts as a word space, but only if the
+    // previous character wasn't already a space or newline, so hard-wrapped
+    // lines and blank lines don't add extra pauses. Literal spaces are always
+    // honored, so intentional extra spaces still lengthen the pause.
     if (c == '\r') return;
-    if (c == '\n') c = ' ';
+    if (c == '\n') {
+        if (fileLastWasSpace) return;
+        c = ' ';
+    }
 
     // Handle space — word gap
     if (c == ' ') {
+        fileLastWasSpace = true;
         uint16_t next = (fileElemHead + 1) % FILE_ELEM_BUF_SIZE;
         if (next != fileElemTail) {
             fileElemBuf[fileElemHead] = {false, false, false, true, false, ' '};
@@ -1331,6 +1343,7 @@ void queueCharMorse(char c) {
     if (idx < 0 || idx >= (int)MORSE_ENCODER_SIZE) return;
     const char *code = morseEncoder[idx].code;
     if (!code || strlen(code) == 0) return;
+    fileLastWasSpace = false;
 
     // Queue each element with inter-element gaps
     bool firstElem = true;
@@ -1342,14 +1355,9 @@ void queueCharMorse(char c) {
             fileElemHead = next;
             firstElem = false;
         }
-        // Add inter-element gap (except after last element)
-        if (code[i+1]) {
-            next = (fileElemHead + 1) % FILE_ELEM_BUF_SIZE;
-            if (next != fileElemTail) {
-                fileElemBuf[fileElemHead] = {false, true, false, false, false, 0};
-                fileElemHead = next;
-            }
-        }
+        // No explicit inter-element gap is queued here: the playback runner
+        // already inserts a 1-dit (charDitLen_ms) gap after every element
+        // via fileElemGap. Queuing another one doubled intra-character spacing.
     }
     // Add character gap
     uint8_t next = (fileElemHead + 1) % FILE_ELEM_BUF_SIZE;
@@ -1486,6 +1494,7 @@ void setupWebServer() {
                 if (!fname.startsWith("/")) fname = "/" + fname;
                 playFile = LittleFS.open(fname, "r");
                 if (playFile) playFile.seek(filePlayedPos);
+                fileLastWasSpace = false;
                 filePlayActive = true;
                 req->send(200, "text/plain", "PAUSED");
             } else {
@@ -1855,7 +1864,7 @@ void loop() {
                     if (newDit != charDitLen_ms) {
                         charDitLen_ms = newDit;
                         // Keep gap speed <= char speed (in ms: gap >= char means gap is slower/equal)
-                        if (gapDitLen_ms > charDitLen_ms) gapDitLen_ms = charDitLen_ms;
+                        if (gapDitLen_ms < charDitLen_ms) gapDitLen_ms = charDitLen_ms;
                         changed = true;
                     }
                 } else {
@@ -2049,7 +2058,7 @@ void loop() {
         uint16_t elIdx = elemT;  // save index before increment
         fileElemTail = (elemT + 1) % FILE_ELEM_BUF_SIZE;
         uint32_t ditMs  = charDitLen_ms;
-        uint32_t gapMs  = gapDitLen_ms;
+        uint32_t gapMs  = effGapDit();
 
         if (el.isWordGap) {
             // Word gap
@@ -2064,8 +2073,11 @@ void loop() {
                 sendChar(filePendingChar);
                 filePendingChar = 0;
             }
+            // Total character spacing = 3 gap-units. The last element's 1-dit
+            // post-element gap (fileElemGap, charDitLen_ms) has already elapsed,
+            // so subtract it here. gapMs >= ditMs, so this is always positive.
             fileInGap    = true;
-            fileGapEndMs = now + gapMs * 3;
+            fileGapEndMs = now + (gapMs * 3 - ditMs);
         } else if (el.isGap) {
             fileInGap    = true;
             fileGapEndMs = now + gapMs;

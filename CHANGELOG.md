@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.8] — 2026 — Bug Fix: CW Timing (Farnsworth and File Playback)
+
+Covers interim builds 1.4.6 and 1.4.7. Timing figures below come from code
+analysis and have not yet been bench-verified on hardware.
+
+### Fixed
+- **File playback ran slow and choppy** — every dit/dah had two 1-unit gaps after
+  it (the playback runner's post-element gap plus a second queued gap), doubling
+  intra-character spacing. Character gap was 4 units and word gap 8 units.
+  Playback now follows standard timing: 1 unit inside a character, 3 between
+  characters, 7 between words. At 20 WPM it previously played at roughly 78% of
+  the set speed.
+- **Live keyer Farnsworth spacing was non-standard** — the gap after each dit/dah
+  used the slow Farnsworth gap speed, stretching spacing inside characters.
+  Intra-character gaps now use character speed; character gaps total 3 gap-units
+  and word gaps N gap-units. With Farnsworth off, timing is unchanged.
+- **Farnsworth setting was cancelled by raising character speed** — the clamp in
+  the WPM edit code was inverted. The gap dit length is now kept at or above the
+  character dit length.
+- Added `effGapDit()` so the `3 * gap - charDit` gap math can never underflow if
+  saved settings load with the gap faster than the characters.
+
+### Changed
+- **File playback line breaks** — a newline now adds a word gap only if the
+  previous character was not already a space or newline. Blank lines, hard-wrapped
+  text, `space + newline` and Windows `\r\n` endings no longer add extra pauses.
+  Literal spaces are still always honored, so intentional extra spaces still
+  lengthen the pause.
+
+---
+
 ## [1.2.1] — 2026 — Bug Fix: Receive Audio Not Playing
 
 ### Fixed
