@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.5.0] — 2026 — Ultimatic Keyer Mode
+
+### Added
+- **Ultimatic keyer mode** — when both paddles are squeezed, the paddle pressed
+  most recently takes over and repeats (no alternation). Releasing it returns to
+  the paddle still held. Like Mode B, the opposite paddle is latched during an
+  element.
+  - GPIO16 long press now cycles A → B → U (Ultimatic) → A
+  - Header shows A, B or U after the GAP setting
+
+### Changed
+- Keyer mode is stored in NVS as `kmode` (0=A, 1=B, 2=U) instead of the boolean
+  `modeB`. Existing units keep their A/B setting on first boot.
+- **Manuals** — User Guide and Manual updated to v1.5.0 with the Ultimatic mode;
+  manual PDF regenerated.
+
+---
+
 ## [1.4.9] — 2026 — Fixes: Decoder, Encoder, Docs and Build Config
 
 Cleanup release from a review of the firmware, README, build config and manuals.
