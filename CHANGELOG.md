@@ -6,6 +6,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.9] — 2026 — Fixes: Decoder, Encoder, Docs and Build Config
+
+Cleanup release from a review of the firmware, README, build config and manuals.
+The PlatformIO build and a `firmware.bin` have not been verified in this
+environment; build with `pio run` before publishing a binary.
+
+### Fixed
+- **Underscore (`_`) was sent wrong from files** — the encoder table had the
+  wrong pattern; it now sends `..--.-`.
+- **`$` could not be decoded from the paddles** — the Morse decode tree held only
+  127 entries, too small for the 7-element `...-..-`. It now holds 255 entries,
+  and a 16-bit helper (`nextMorsePos`) prevents the position counter wrapping on
+  over-long sequences. Longer sequences are discarded.
+- **Stale comments** — volume default comment, header feature text and the
+  embedded `platformio.ini` block now match the code.
+
+### Changed
+- **Build config** — removed the unused OTA library and `ELEGANTOTA` flag
+  (OTA was removed in 1.4.0) from `platformio.ini`; deleted the stray
+  `firmware/platform.ini/` folder.
+- **README** — removed the obsolete OTA option, updated the `platformio.ini`
+  block, build-from-source steps and repository structure.
+- **Manuals** — User Guide and Manual updated to v1.4.9: default volume 64%
+  (firmware default unchanged), volume range 2–100%, edit-mode short-press
+  behaviour, and file line-break handling. The manual PDF is regenerated from
+  the Word file (the previous PDF was an outdated v1.0 document).
+
+---
+
 ## [1.4.8] — 2026 — Bug Fix: CW Timing (Farnsworth and File Playback)
 
 Covers interim builds 1.4.6 and 1.4.7. Timing figures below come from code
