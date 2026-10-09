@@ -29,7 +29,7 @@ A full-featured two-way CW (Morse code) keyer built on the LilyGO T-Display S3 A
 - **Two-way CW communication** — transmit and receive simultaneously
 - **Real-time Morse decoding** — letters, numbers, punctuation, and prosigns
 - **Scrolling TX/RX display** on 1.91" AMOLED (536×240)
-- **Farnsworth spacing** — two-speed CW for learning (4–40 WPM effective, independent of character speed)
+- **Farnsworth spacing** — two-speed CW for learning (character speed plus a 4 WPM-or-higher overall speed, e.g. 20/10)
 - **Adjustable word gap spacing** (off or 4–9 dits) for display readability
 - **Non-volatile settings** — survives power cycles
 - **Single pot** with mode cycling for all parameter adjustments

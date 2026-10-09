@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.10] — 2026 — Farnsworth Speed Now Means Overall Speed
+
+### Changed
+- **Farnsworth setting is now the overall (effective) speed.** Previously the
+  second number set the speed of the gaps, so 20/10 played at about 14.5 WPM
+  overall. It now follows the standard definition: characters are sent at
+  character speed and the spacing is stretched so the word PARIS takes
+  60000 / overall-speed ms. At 20/10 the gap unit is about 218 ms, ten
+  repeats of "PARIS" take about 58.5 seconds, and the display shows `20/10`.
+  Sources: [W6ZE](https://w6ze.org/btt/BTT054A.pdf),
+  [morsecode.world](https://morsecode.world/international/timing/farnsworth.html).
+- Changing the character speed with Farnsworth on now keeps the overall speed
+  and recalculates the gaps. With Farnsworth off, the gaps follow the character
+  speed as before.
+- Manuals updated to v1.4.10 with the new wording.
+
+### Upgrade notes
+- Saved settings keep their exact timing, but a Farnsworth setting saved by an
+  earlier version will now display its true overall speed (an old 20/10 shows
+  as 20/14). Re-set Farnsworth if you want a specific overall speed.
+- Not yet verified on hardware.
+
+---
+
 ## [1.4.9] — 2026 — Fixes: Decoder, Encoder, Docs and Build Config
 
 Cleanup release from a review of the firmware, README, build config and manuals.

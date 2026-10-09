@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.4.9
+//  Version 1.4.10
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -18,7 +18,7 @@
 //    - Incoming CW replayed with sender's frequency + shown on screen
 //    - Head copy delay: incoming chars display delayed 0-3s after receipt
 //    - Audio Only mode: incoming audio plays but RX text suppressed
-//    - Farnsworth spacing: independent character and gap speeds
+//    - Farnsworth spacing: character speed + overall (effective) speed, e.g. 20/10
 //    - Word gap spacing: automatic space detection
 //    - File playback: send text file via phone web browser → plays in CW
 //    - WiFi AP: connect phone to the K0WLY-XXXX hotspot (XXXX = unit ID), upload/manage files
@@ -78,7 +78,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.4.9"
+#define FW_VERSION "v1.4.10"
 
 // WiFi AP settings for file upload
 #define AP_SSID     "K0WLY-Keyer"
@@ -157,14 +157,15 @@ bool potPickedUp[POT_MODE_COUNT]  = {true, true, true, true, true};
 
 // Edit mode — pot only changes values when in edit mode (long press to enter)
 bool potEditMode = false;
-uint8_t wpmEditStep = 0;  // 0=char speed, 1=Farnsworth speed (only used when potMode==POT_WPM)
+uint8_t wpmEditStep = 0;  // 0=char speed, 1=Farnsworth overall speed (only used when potMode==POT_WPM)
 
 // Long press detection
 #define LONG_PRESS_MS       1000
 
 // ── Runtime state ─────────────────────────────────────────────────────────────
 volatile uint32_t charDitLen_ms   = 60;    // character speed dit length (20 WPM default)
-volatile uint32_t gapDitLen_ms    = 60;    // gap speed dit length (Farnsworth, = char when off)
+volatile uint32_t gapDitLen_ms    = 60;    // Farnsworth gap unit length in ms (= char dit when Farnsworth is off)
+volatile uint32_t farnTargetWPM   = 20;    // overall (effective) speed the gap unit is derived from
 volatile uint32_t localFreq       = 700;   // local sidetone Hz — each unit sets its own
 volatile uint32_t headCopyDelayMs = 0;     // incoming char display delay
 volatile uint8_t  wordGapDits     = 0;     // 0=off, 4-9 = word gap threshold in dits
@@ -174,7 +175,22 @@ volatile bool     iambicModeB     = false; // false = Mode A, true = Mode B
 
 // Convenience: character WPM and Farnsworth effective WPM
 static inline uint32_t charWPM() { return 1200 / charDitLen_ms; }
-static inline uint32_t farnWPM() { return 1200 / gapDitLen_ms; }
+// Farnsworth: characters are sent at character speed; only the gaps stretch so
+// that the word PARIS (31 character units + 19 gap units) takes 60000/overall ms.
+// Gap unit = (60000/overall - 31*charDit) / 19. Gaps are 3 and 7 gap units.
+static inline uint32_t farnGapDitFor(uint32_t overallWPM, uint32_t charDit) {
+    if (overallWPM < 1) overallWPM = 1;
+    uint32_t total = 60000 / overallWPM;
+    uint32_t chars = 31 * charDit;
+    if (overallWPM >= 1200 / charDit || total <= chars + 19 * charDit) return charDit;   // at/above char speed: no Farnsworth
+    return (total - chars + 9) / 19;                          // rounded
+}
+// Overall (effective) speed implied by the current dit lengths.
+static inline uint32_t farnWPM() {
+    uint32_t g = gapDitLen_ms, c = charDitLen_ms;
+    if (g <= c) return 1200 / c;
+    return (60000 + (31 * c + 19 * g) / 2) / (31 * c + 19 * g);   // rounded
+}
 // Effective gap dit length: never shorter than the character dit. Guards the
 // (3 * gap - char) character-gap math against unsigned underflow.
 static inline uint32_t effGapDit() { uint32_t g = gapDitLen_ms, c = charDitLen_ms; return g > c ? g : c; }
@@ -1269,6 +1285,7 @@ void loadSettings() {
         prefs.end();
         Serial.println("NVS: settings loaded");
     }
+    farnTargetWPM = farnWPM();   // overall speed implied by the saved dit lengths
 }
 
 // ── File playback helpers ─────────────────────────────────────────────────────
@@ -1880,21 +1897,28 @@ void loop() {
                     if (wpm < 1) wpm = 1;
                     uint32_t newDit = 1200 / wpm;
                     if (newDit != charDitLen_ms) {
+                        bool farnWasOff = (gapDitLen_ms <= charDitLen_ms);
                         charDitLen_ms = newDit;
-                        // Keep gap speed <= char speed (in ms: gap >= char means gap is slower/equal)
-                        if (gapDitLen_ms < charDitLen_ms) gapDitLen_ms = charDitLen_ms;
+                        if (farnWasOff) {
+                            // Farnsworth off: gaps follow the character speed
+                            gapDitLen_ms  = charDitLen_ms;
+                            farnTargetWPM = charWPM();
+                        } else {
+                            // Farnsworth on: keep the overall speed, re-derive the gap unit
+                            gapDitLen_ms = farnGapDitFor(farnTargetWPM, charDitLen_ms);
+                        }
                         changed = true;
                     }
                 } else {
-                    // Step 2: Farnsworth effective speed (4 WPM min, capped at char speed)
+                    // Step 2: Farnsworth overall (effective) speed (4 WPM min, capped at char speed)
                     uint32_t farnMax = charWPM();
                     uint32_t farnMin = 4;
                     if (farnMax < farnMin) farnMax = farnMin;
                     uint32_t wpm = farnMin + (uint32_t)((rawNow / 4095.0f) * (farnMax - farnMin));
                     if (wpm < farnMin) wpm = farnMin;
                     if (wpm > farnMax) wpm = farnMax;
-                    uint32_t newGapDit = 1200 / wpm;
-                    if (newGapDit != gapDitLen_ms) { gapDitLen_ms = newGapDit; changed = true; }
+                    uint32_t newGapDit = farnGapDitFor(wpm, charDitLen_ms);
+                    if (newGapDit != gapDitLen_ms) { gapDitLen_ms = newGapDit; farnTargetWPM = wpm; changed = true; }
                 }
                 break;
             }
