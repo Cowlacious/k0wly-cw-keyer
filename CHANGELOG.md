@@ -34,16 +34,6 @@ analysis and have not yet been bench-verified on hardware.
   text, `space + newline` and Windows `\r\n` endings no longer add extra pauses.
   Literal spaces are still always honored, so intentional extra spaces still
   lengthen the pause.
-
----
-
-## [1.2.1] — 2026 — Bug Fix: Receive Audio Not Playing
-
-### Fixed
-- **Incoming CW audio** was completely silent on receiving unit
-  - LEDC channel 1 (remote) was never attached to PIN_SIDETONE — fixed by using LEDC channel 0 (local) for both local and remote playback since they never overlap
-  - Inter-element gap between received elements corrected from hardcoded 10ms to proper timing
-
 ---
 
 ## [1.4.5] — 2026 — Bug Fix: Iambic Mode A/B Logic
@@ -57,7 +47,6 @@ analysis and have not yet been bench-verified on hardware.
   elements, allowing the next element to be queued early for smoother squeeze keying.
 - The original firmware (before v1.4.4) was always behaving as Mode B regardless
   of the mode setting.
-
 ---
 
 ## [1.4.4] — 2026 — Iambic Mode A/B Selection
@@ -74,72 +63,28 @@ analysis and have not yet been bench-verified on hardware.
 ### Changed
 - NVS version bumped to 4 — existing units reset to defaults on first boot
 - Header shows A/B/SK instead of IAM/SK to fit all items without overlap
-
 ---
 
-## [1.4.3] — 2026 — Bug Fix: Long File Playback
-
-### Fixed
-- **Long file playback stopping mid-file** — ring buffer wrap-around caused incorrect
-  space calculation when fileElemHead wrapped past 255 back to 0, making the buffer
-  appear full when it wasn't. Fixed with proper wrap-aware free space calculation.
-- **Newlines in text files** now insert a word space on the TX line instead of
-  being silently ignored — lines of text are now clearly separated during playback
-- **Inter-element gap conflict** — separated inter-element gap (after keying ends)
-  from char/word gap using dedicated fileElemGap flag, preventing double-gap issues
-- Added playback watchdog to recover from any stuck playback state
-
----
-
-## [1.4.5] — 2026 — Bug Fix: Iambic Mode A/B Logic
-
-### Fixed
-- **Iambic Mode A was incorrectly implemented** — it was latching opposite paddle
-  memory during active elements, which is Mode B behavior. Mode A correctly does
-  NOT latch any memory during an active element; the opposite paddle must be
-  pressed during the inter-element gap to register.
-- **Mode B now correctly defined** — latches opposite paddle memory during active
-  elements, allowing the next element to be queued early for smoother squeeze keying.
-- The original firmware (before v1.4.4) was always behaving as Mode B regardless
-  of the mode setting.
-
----
-
-## [1.4.4] — 2026 — Iambic Mode A/B Selection
-
-### Added
-- **Iambic Mode A/B toggle** via GPIO16 long press (1 second)
-  - Short press still toggles dit/dah swap as before
-  - Header shows A or B after GAP setting
-  - Mode saved to NVS and restored on power cycle
-- **Header layout improved** — all items now flow left to right with consistent
-  9px spacing, no fixed positions that cause overlap or large gaps
-- **Straight key switch** now updates header display immediately when toggled
-
-### Changed
-- NVS version bumped to 4 — existing units reset to defaults on first boot
-- Header shows A/B/SK instead of IAM/SK to fit all items without overlap
-
----
-
-## [1.4.3] — 2026 — File Playback Improvements
+## [1.4.3] — 2026 — File Playback Improvements and Bug Fixes
 
 ### Added
 - **Pause/Resume** button on web page — instantly pauses file playback and resumes
   from approximately the same position (within one character)
 - **Stop Playback** now truly immediate — flushes element buffer and stops audio instantly
-- **Newlines** in text files insert a word space on TX line for cleaner display
+- **Newlines** in text files now insert a word space on the TX line instead of
+  being silently ignored — lines of text are clearly separated during playback
 - **Playback watchdog** recovers from any stuck playback state automatically
 
 ### Fixed
 - **Long file playback stopping mid-file** — ring buffer wrap-around bug caused
-  incorrect space calculation when fileElemHead wrapped past 255 back to 0.
-  Fixed with proper wrap-aware free space calculation
-- **Separate inter-element gap flag** (fileElemGap) prevents conflict with
-  char/word gap timing that caused occasional playback stalls
+  incorrect space calculation when fileElemHead wrapped past 255 back to 0, making
+  the buffer appear full when it wasn't. Fixed with proper wrap-aware free space
+  calculation
+- **Inter-element gap conflict** — separated inter-element gap (after keying ends)
+  from char/word gap using dedicated fileElemGap flag, preventing double-gap issues
+  and occasional playback stalls
 - **Resume near end of file** — file is reopened correctly when pausing after
   the file has finished reading but buffer is still draining
-
 ---
 
 ## [1.4.2] — 2026 — Bug Fix: Iambic Output Logic
@@ -152,7 +97,6 @@ analysis and have not yet been bench-verified on hardware.
   - Pins now initialized LOW (inactive) at boot — radio no longer keys on startup
 - Removed invalid RTC_CNTL_WDTCONFIG0_REG and esp_efuse calls that caused compile errors on ESP32-S3
 - Removed unused esp_efuse includes
-
 ---
 
 ## [1.4.1] — 2026 — Bug Fix: Morse Decoding for 7, 8, 9
@@ -162,7 +106,6 @@ analysis and have not yet been bench-verified on hardware.
   - 7 (--...) corrected to position 55
   - 8 (---..) corrected to position 59
   - 9 (----.) corrected to position 61
-
 ---
 
 ## [1.4.0] — 2026 — Iambic Output and Web UI Redesign
@@ -192,7 +135,6 @@ analysis and have not yet been bench-verified on hardware.
 ### Removed
 - OTA firmware update section removed from web page (unreliable on Android)
 - ESPAsyncHTTPUpdateServer library dependency removed
-
 ---
 
 ## [1.3.0] — 2026 — WiFi File Playback
@@ -224,201 +166,6 @@ analysis and have not yet been bench-verified on hardware.
 - WiFi mode changed from WIFI_STA to WIFI_AP_STA
 - AP SSID is now unique per unit (K0WLY-XXXX) instead of K0WLY-Keyer
 - Status area now shows unit ID above callsign/version
-
----
-
-## [1.2.3] — 2026 — Audio Only Mode
-
-### Added
-- **Audio Only (AO) mode** for head copy delay setting
-  - Turn pot to top 10% of range while in DELAY edit mode to enable
-  - Header shows `DLY:AO` when active
-  - Status area shows `AUDIO ONLY` as the value
-  - RX line shows `[Audio Only]` in dim text instead of decoded characters
-  - Incoming CW audio plays normally — only the text display is suppressed
-  - Perfect for operators who want pure audible head copy with no visual crutch
-
----
-
-## [1.4.5] — 2026 — Bug Fix: Iambic Mode A/B Logic
-
-### Fixed
-- **Iambic Mode A was incorrectly implemented** — it was latching opposite paddle
-  memory during active elements, which is Mode B behavior. Mode A correctly does
-  NOT latch any memory during an active element; the opposite paddle must be
-  pressed during the inter-element gap to register.
-- **Mode B now correctly defined** — latches opposite paddle memory during active
-  elements, allowing the next element to be queued early for smoother squeeze keying.
-- The original firmware (before v1.4.4) was always behaving as Mode B regardless
-  of the mode setting.
-
----
-
-## [1.4.4] — 2026 — Iambic Mode A/B Selection
-
-### Added
-- **Iambic Mode A/B toggle** via GPIO16 long press (1 second)
-  - Short press still toggles dit/dah swap as before
-  - Header shows A or B after GAP setting
-  - Mode saved to NVS and restored on power cycle
-- **Header layout improved** — all items now flow left to right with consistent
-  9px spacing, no fixed positions that cause overlap or large gaps
-- **Straight key switch** now updates header display immediately when toggled
-
-### Changed
-- NVS version bumped to 4 — existing units reset to defaults on first boot
-- Header shows A/B/SK instead of IAM/SK to fit all items without overlap
-
----
-
-## [1.4.3] — 2026 — Bug Fix: Long File Playback
-
-### Fixed
-- **Long file playback stopping mid-file** — ring buffer wrap-around caused incorrect
-  space calculation when fileElemHead wrapped past 255 back to 0, making the buffer
-  appear full when it wasn't. Fixed with proper wrap-aware free space calculation.
-- **Newlines in text files** now insert a word space on the TX line instead of
-  being silently ignored — lines of text are now clearly separated during playback
-- **Inter-element gap conflict** — separated inter-element gap (after keying ends)
-  from char/word gap using dedicated fileElemGap flag, preventing double-gap issues
-- Added playback watchdog to recover from any stuck playback state
-
----
-
-## [1.4.5] — 2026 — Bug Fix: Iambic Mode A/B Logic
-
-### Fixed
-- **Iambic Mode A was incorrectly implemented** — it was latching opposite paddle
-  memory during active elements, which is Mode B behavior. Mode A correctly does
-  NOT latch any memory during an active element; the opposite paddle must be
-  pressed during the inter-element gap to register.
-- **Mode B now correctly defined** — latches opposite paddle memory during active
-  elements, allowing the next element to be queued early for smoother squeeze keying.
-- The original firmware (before v1.4.4) was always behaving as Mode B regardless
-  of the mode setting.
-
----
-
-## [1.4.4] — 2026 — Iambic Mode A/B Selection
-
-### Added
-- **Iambic Mode A/B toggle** via GPIO16 long press (1 second)
-  - Short press still toggles dit/dah swap as before
-  - Header shows A or B after GAP setting
-  - Mode saved to NVS and restored on power cycle
-- **Header layout improved** — all items now flow left to right with consistent
-  9px spacing, no fixed positions that cause overlap or large gaps
-- **Straight key switch** now updates header display immediately when toggled
-
-### Changed
-- NVS version bumped to 4 — existing units reset to defaults on first boot
-- Header shows A/B/SK instead of IAM/SK to fit all items without overlap
-
----
-
-## [1.4.3] — 2026 — File Playback Improvements
-
-### Added
-- **Pause/Resume** button on web page — instantly pauses file playback and resumes
-  from approximately the same position (within one character)
-- **Stop Playback** now truly immediate — flushes element buffer and stops audio instantly
-- **Newlines** in text files insert a word space on TX line for cleaner display
-- **Playback watchdog** recovers from any stuck playback state automatically
-
-### Fixed
-- **Long file playback stopping mid-file** — ring buffer wrap-around bug caused
-  incorrect space calculation when fileElemHead wrapped past 255 back to 0.
-  Fixed with proper wrap-aware free space calculation
-- **Separate inter-element gap flag** (fileElemGap) prevents conflict with
-  char/word gap timing that caused occasional playback stalls
-- **Resume near end of file** — file is reopened correctly when pausing after
-  the file has finished reading but buffer is still draining
-
----
-
-## [1.4.2] — 2026 — Bug Fix: Iambic Output Logic
-
-### Fixed
-- **Iambic DIT/DAH output logic was inverted** — optocoupler circuit is active HIGH
-  (GPIO HIGH = LED on = phototransistor conducts = radio keyed) not active LOW as originally coded
-  - Added IAMBIC_ACTIVE and IAMBIC_INACTIVE macros for clarity
-  - All iambic output writes updated to use correct logic
-  - Pins now initialized LOW (inactive) at boot — radio no longer keys on startup
-- Removed invalid RTC_CNTL_WDTCONFIG0_REG and esp_efuse calls that caused compile errors on ESP32-S3
-- Removed unused esp_efuse includes
-
----
-
-## [1.4.1] — 2026 — Bug Fix: Morse Decoding for 7, 8, 9
-
-### Fixed
-- **Morse decoder** — digits 7, 8, and 9 were mapped to incorrect positions in the binary decode tree
-  - 7 (--...) corrected to position 55
-  - 8 (---..) corrected to position 59
-  - 9 (----.) corrected to position 61
-
----
-
-## [1.4.0] — 2026 — Iambic Output and Web UI Redesign
-
-### Added
-- **Iambic DIT/DAH output** on GPIO40 and GPIO41
-  - Active LOW, same optocoupler circuit as existing KEY OUT (GPIO12)
-  - Connect to radio's 3.5mm paddle input (tip=DIT, ring=DAH, sleeve=GND)
-  - Driven in sync with keyer ISR — exact timing matches actual keying
-  - Also driven during file playback — radio transmits CW from practice files
-  - Paddle reverse applies to outputs — swapping dit/dah swaps the outputs too
-  - Always active — no switch needed, just plug in
-- **Dit/Dah swap button** on web page (orange button at top)
-  - Shows SWAPPED or NORMAL confirmation after tap
-  - GPIO16 button now exclusively handles dit/dah swap (no file control)
-- **Improved file list** on web page
-  - Filenames shown without .txt extension
-  - Underscores displayed as spaces (cq_call.txt → "cq call")
-  - Compact Play/Delete buttons per file
-  - Works cleanly with 10+ files
-
-### Changed
-- GPIO16 button simplified — only toggles dit/dah swap, no file control
-- Web page redesigned — Practice Files section prominent, Upload moved to bottom
-- File playback drives iambic outputs so radio transmits during practice
-
-### Removed
-- OTA firmware update section removed from web page (unreliable on Android)
-- ESPAsyncHTTPUpdateServer library dependency removed
-
----
-
-## [1.3.0] — 2026 — WiFi File Playback
-
-### Added
-- **WiFi Access Point** — keyer creates a unique hotspot (K0WLY-XXXX) on boot
-  - Connect any phone, tablet, or computer — no password required
-  - Browse to http://192.168.4.1 for the file management web page
-  - Works on Android, iPhone, Windows, Mac, and Linux
-- **Text file playback** — upload .txt files and play them as CW practice
-  - Upload files from phone browser — no computer or cables needed
-  - Files stored on-board in LittleFS flash filesystem
-  - Multiple files supported — tap Play next to any file
-  - Delete files from the web page
-- **Synchronized TX display** — characters appear as they sound, not ahead
-  - Each character displays at the character gap (after all elements played)
-  - Word spaces display when the word gap silence plays
-  - TX line clears automatically when a new file starts playing
-- **GPIO16 button file control** (when files are present):
-  - Long press — play/pause current file
-  - Short press — cycle to next file (if multiple files loaded)
-- **Unique unit ID** — last 4 hex digits of MAC shown on status area
-  - Makes it easy to identify which unit is which
-  - Matches the WiFi hotspot name (K0WLY-XXXX)
-- **AP+STA simultaneous mode** — WiFi hotspot and ESP-NOW peer connection
-  work at the same time on the same hardware
-
-### Changed
-- WiFi mode changed from WIFI_STA to WIFI_AP_STA
-- AP SSID is now unique per unit (K0WLY-XXXX) instead of K0WLY-Keyer
-- Status area now shows unit ID above callsign/version
-
 ---
 
 ## [1.2.3] — 2026 — Audio Only Mode
@@ -431,7 +178,6 @@ analysis and have not yet been bench-verified on hardware.
   - RX line shows `[Audio Only]` in dim orange when active
   - Incoming CW audio plays normally — only the text display is suppressed
   - Perfect for operators who want pure audible head copy with no visual crutch
-
 ---
 
 ## [1.2.2] — 2026 — Bug Fix: Received Audio Playback
@@ -442,7 +188,14 @@ analysis and have not yet been bench-verified on hardware.
   - Inter-element gap on receiver correctly derived from received element duration
   - Audio no longer continues playing on receiver after sender has stopped
 - Removed unused `elementStartMs` variable
+---
 
+## [1.2.1] — 2026 — Bug Fix: Receive Audio Not Playing
+
+### Fixed
+- **Incoming CW audio** was completely silent on receiving unit
+  - LEDC channel 1 (remote) was never attached to PIN_SIDETONE — fixed by using LEDC channel 0 (local) for both local and remote playback since they never overlap
+  - Inter-element gap between received elements corrected from hardcoded 10ms to proper timing
 ---
 
 ## [1.2.0] — 2026 — Farnsworth Spacing
@@ -465,7 +218,6 @@ analysis and have not yet been bench-verified on hardware.
 - Word gap threshold uses gap speed dits — automatically scales with Farnsworth setting
 - NVS settings version bumped to 3
 - Word gap OFF zone widened to bottom 20% of pot travel for easier access
-
 ---
 
 ## [1.1.0] — 2026 — Word Gap and Display Updates
@@ -482,7 +234,6 @@ analysis and have not yet been bench-verified on hardware.
 - Header bar updated: K0WLY callsign removed from header to make room for GAP indicator
 - GAP indicator shows GAP:OFF or GAP:4 through GAP:9, highlighted green when active
 - NVS settings version bumped to 2
-
 ---
 
 ## [1.0.0] — 2026 — Initial Release
