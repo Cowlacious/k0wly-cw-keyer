@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Two-Way CW Keyer — LilyGO T-Display S3 AMOLED 1.91" (RM67162)
 //  K0WLY build  —  PlatformIO / Arduino framework
-//  Version 1.4.8
+//  Version 1.4.9
 //
 //  Copyright © 2026 K0WLY (Carl Cowley)
 //  Saratoga Springs, Utah — Grid Square DN40
@@ -12,7 +12,7 @@
 //  Attribution to K0WLY must be retained on all copies and derivatives.
 //
 //  FEATURES:
-//    - Iambic Mode A keyer with sidetone (or straight key via GPIO15 switch)
+//    - Iambic Mode A or B keyer with sidetone (or straight key via GPIO15 switch)
 //    - ESP-NOW peer-to-peer WiFi (auto-discovery, no router needed)
 //    - Two-way CW: outgoing keyed locally, transmitted to peer
 //    - Incoming CW replayed with sender's frequency + shown on screen
@@ -21,32 +21,31 @@
 //    - Farnsworth spacing: independent character and gap speeds
 //    - Word gap spacing: automatic space detection
 //    - File playback: send text file via phone web browser → plays in CW
-//    - WiFi AP: connect phone to K0WLY-Keyer hotspot, upload/manage files
+//    - WiFi AP: connect phone to the K0WLY-XXXX hotspot (XXXX = unit ID), upload/manage files
 //    - Single pot cycles through WPM / FREQ / DELAY / VOL / GAP modes
 //    - Display: header | TX scrolling line | RX scrolling line | status
 //
-//  platformio.ini:
+//  platformio.ini (firmware/platformio.ini in the repository):
 //  ─────────────────────────────────────────────────────────────
+//  [platformio]
+//  boards_dir = ./boards
+//
 //  [env:t_display_s3_amoled]
 //  platform = espressif32
-//  board = esp32-s3-devkitm-1
+//  board = lilygo-t-amoled
 //  framework = arduino
-//  board_build.mcu = esp32s3
-//  board_build.f_cpu = 240000000L
-//  board_build.flash_size = 16MB
-//  board_build.flash_mode = dio
-//  board_build.psram_type = opi
-//  board_upload.flash_size = 16MB
-//  board_build.partitions = default_8MB.csv
 //  monitor_speed = 115200
+//  board_build.partitions = partitions.csv
+//  board_build.filesystem = littlefs
 //  build_flags =
-//      -DARDUINO_USB_CDC_ON_BOOT=1
 //      -DBOARD_HAS_PSRAM
+//      -DARDUINO_USB_CDC_ON_BOOT=1
+//      -DASYNCWEBSERVER_REGEX=0
 //  lib_deps =
 //      https://github.com/Xinyuan-LilyGO/LilyGo-AMOLED-Series
 //      https://github.com/moononournation/Arduino_GFX#v1.4.7
-//      ESP Async WebServer
-//      AsyncTCP
+//      https://github.com/ESP32Async/AsyncTCP
+//      https://github.com/ESP32Async/ESPAsyncWebServer
 //  ─────────────────────────────────────────────────────────────
 //
 //  GPIO PIN ASSIGNMENTS (1.91" AMOLED — reserved: 2,3,5,6,7,9,17,18,21,38,47,48)
@@ -79,7 +78,7 @@
 Preferences prefs;
 
 // Firmware version — update this whenever code changes
-#define FW_VERSION "v1.4.8"
+#define FW_VERSION "v1.4.9"
 
 // WiFi AP settings for file upload
 #define AP_SSID     "K0WLY-Keyer"
@@ -133,7 +132,7 @@ static bool     fileLastWasSpace = true; // true if last queued char was a space
 #define LEDC_CHANNEL_REMOTE 1
 #define LEDC_RES_BITS       8
 // SIDETONE_DUTY is now a variable (10-255) controlled by pot VOL mode
-volatile uint8_t sidetone_duty = 128;  // ~50% default volume
+volatile uint8_t sidetone_duty = 128;  // default duty 128 — shows as 64% (the VOL scale maps duty 200 = 100%)
 
 // ── Keyer parameters ─────────────────────────────────────────────────────────
 #define WPM_MIN         5
@@ -195,7 +194,8 @@ volatile bool       dahMemory    = false;
 
 // ── Morse decoder ─────────────────────────────────────────────────────────────
 // Binary tree: dit = pos*2+1, dah = pos*2+2
-// 127 entries (7 levels) covering letters, numbers, punctuation, and prosigns
+// 255 entries: sequences of up to 7 elements (7-element '$' is at index 136), covering
+// letters, numbers, punctuation, and prosigns. Longer sequences are discarded.
 // Prosigns: + = AR (end of message), = BT (break/paragraph), ~ = SK (end of contact)
 static const char morseTree[] = {
     ' ','E','T','I','A','N','M','S','U','R',  // 0-9
@@ -210,9 +210,31 @@ static const char morseTree[] = {
     ' ',' ',' ','\'',' ',' ','-',' ',' ',' ', // 90-99
     ' ',' ',' ',' ',' ',';','!',' ',')',' ',  // 100-109
     ' ',' ',' ',' ',',',' ',' ',' ',' ',':',  // 110-119
-    ' ',' ',' ',' ',' ',' ',' '               // 120-126
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 120-129
+    ' ',' ',' ',' ',' ',' ','$',' ',' ',' ',  // 130-139
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 140-149
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 150-159
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 160-169
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 170-179
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 180-189
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 190-199
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 200-209
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 210-219
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 220-229
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 230-239
+    ' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',  // 240-249
+    ' ',' ',' ',' ',' '                       // 250-254
 };
 volatile uint8_t morsePos = 0;
+
+// Advance the decoder position by one element. The arithmetic is done in 16 bits and
+// range-checked BEFORE narrowing to uint8_t: with a 255-entry table, pos*2+2 can exceed
+// 255 and would otherwise wrap around and decode as the wrong character.
+// Returns 0 (restart) when the sequence is longer than the table supports.
+static inline uint8_t nextMorsePos(uint8_t pos, bool isDah) {
+    uint16_t n = (uint16_t)pos * 2 + (isDah ? 2 : 1);
+    return (n >= sizeof(morseTree)) ? 0 : (uint8_t)n;
+}
 
 // ── Morse encoder (text → CW elements for file playback) ─────────────────────
 // Each entry is a string of '.' and '-' characters, null terminated
@@ -282,7 +304,7 @@ static const MorseCode morseEncoder[] = {
     {""},        // '\' (92)
     {""},        // ']' (93)
     {""},        // '^' (94)
-    {"..--"},    // '_' (95)
+    {"..--.-"},  // '_' (95)
     {""},        // '`' (96)
     {".-"},      // 'a' (97) — lowercase handled by uppercase conversion
     {"-..."},    // 'b'
@@ -464,8 +486,7 @@ static void keyer_isr() {
                 if (dahMemory) {
                     dahMemory = false;
                     ditMemory = false;
-                    morsePos = morsePos * 2 + 2;
-                    if (morsePos >= sizeof(morseTree)) morsePos = 0;
+                    morsePos = nextMorsePos(morsePos, true);
                     digitalWrite(PIN_KEY_OUT, HIGH);
                     digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
                     digitalWrite(PIN_IAMBIC_DAH, IAMBIC_ACTIVE);   // DAH active
@@ -475,8 +496,7 @@ static void keyer_isr() {
                 } else if (ditMemory) {
                     ditMemory = false;
                     dahMemory = false;
-                    morsePos = morsePos * 2 + 1;
-                    if (morsePos >= sizeof(morseTree)) morsePos = 0;
+                    morsePos = nextMorsePos(morsePos, false);
                     digitalWrite(PIN_KEY_OUT, HIGH);
                     digitalWrite(PIN_IAMBIC_DIT, IAMBIC_ACTIVE);   // DIT active
                     digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
@@ -505,8 +525,7 @@ static void keyer_isr() {
                 if (ditMemory) {
                     ditMemory = false;
                     dahMemory = false;
-                    morsePos = morsePos * 2 + 1;
-                    if (morsePos >= sizeof(morseTree)) morsePos = 0;
+                    morsePos = nextMorsePos(morsePos, false);
                     digitalWrite(PIN_KEY_OUT, HIGH);
                     digitalWrite(PIN_IAMBIC_DIT, IAMBIC_ACTIVE);   // DIT active
                     digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
@@ -516,8 +535,7 @@ static void keyer_isr() {
                 } else if (dahMemory) {
                     dahMemory = false;
                     ditMemory = false;
-                    morsePos = morsePos * 2 + 2;
-                    if (morsePos >= sizeof(morseTree)) morsePos = 0;
+                    morsePos = nextMorsePos(morsePos, true);
                     digitalWrite(PIN_KEY_OUT, HIGH);
                     digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
                     digitalWrite(PIN_IAMBIC_DAH, IAMBIC_ACTIVE);   // DAH active
@@ -534,7 +552,7 @@ static void keyer_isr() {
         case KEYER_CHAR_GAP:
             if (--elementTimer == 0) {
                 char decoded = ' ';
-                if (morsePos > 0 && morsePos < (uint8_t)sizeof(morseTree)) {
+                if (morsePos > 0 && (size_t)morsePos < sizeof(morseTree)) {
                     decoded = morseTree[morsePos];
                 }
                 uint8_t nextHead = (outBufHead + 1) % OUT_BUF_SIZE;
