@@ -8,7 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [1.5.0] — 2026 — Ultimatic Keyer Mode
 
-Adds an Ultimatic mode, contributed by UtahDave in
+Adds an Ultimatic mode, contributed by UtahDave (W7OM) in
 [PR #9](https://github.com/Cowlacious/k0wly-cw-keyer/pull/9) and merged onto
 v1.4.10, with one change to how held paddles are remembered. Modes A and B
 are unchanged. Tested on a host simulation and on a LilyGO unit by K0WLY (mode cycling,
