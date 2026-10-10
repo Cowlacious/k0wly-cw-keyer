@@ -11,7 +11,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Adds an Ultimatic mode, contributed by UtahDave in
 [PR #9](https://github.com/Cowlacious/k0wly-cw-keyer/pull/9) and merged onto
 v1.4.10, with one change to how held paddles are remembered. Modes A and B
-are unchanged. Tested on a host simulation only; not yet verified on hardware.
+are unchanged. Tested on a host simulation and on a LilyGO unit by K0WLY (mode cycling,
+squeeze priority, tap memory, release behavior).
 
 ### Added
 - **Ultimatic keyer mode** — when both paddles are squeezed, the paddle pressed
