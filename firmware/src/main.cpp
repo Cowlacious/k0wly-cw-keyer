@@ -1343,6 +1343,73 @@ void loadSettings() {
     farnTargetWPM = farnWPM();   // overall speed implied by the saved dit lengths
 }
 
+// ── Web settings changes ──────────────────────────────────────────────────────
+// The web server runs on the AsyncTCP task, so /set only records the request.
+// loop() applies it, saves to NVS and redraws, keeping display and NVS access on
+// one task. A value of -1 means "not requested".
+enum { WS_WPM = 0, WS_FARN, WS_FREQ, WS_DELAY, WS_VOL, WS_GAP, WS_KMODE, WS_REV, WS_COUNT };
+static const char *webReqKeys[WS_COUNT] = {"wpm", "farn", "freq", "delay", "vol", "gap", "kmode", "rev"};
+static int32_t        webReq[WS_COUNT];
+static volatile bool  webReqPending = false;
+static portMUX_TYPE   webReqMux     = portMUX_INITIALIZER_UNLOCKED;
+
+static void applyCharWPM(uint32_t wpm) {
+    if (wpm < WPM_MIN) wpm = WPM_MIN;
+    if (wpm > WPM_MAX) wpm = WPM_MAX;
+    uint32_t newDit = 1200 / wpm;
+    if (newDit == charDitLen_ms) return;
+    bool farnWasOff = (gapDitLen_ms <= charDitLen_ms);
+    charDitLen_ms = newDit;
+    if (farnWasOff) {
+        gapDitLen_ms  = charDitLen_ms;
+        farnTargetWPM = charWPM();
+    } else {
+        gapDitLen_ms = farnGapDitFor(farnTargetWPM, charDitLen_ms);
+    }
+}
+
+// Overall (effective) speed; at or above the character speed turns Farnsworth off
+static void applyFarnWPM(uint32_t wpm) {
+    if (wpm < 4) wpm = 4;
+    if (wpm >= charWPM()) {
+        gapDitLen_ms  = charDitLen_ms;
+        farnTargetWPM = charWPM();
+    } else {
+        gapDitLen_ms  = farnGapDitFor(wpm, charDitLen_ms);
+        farnTargetWPM = wpm;
+    }
+}
+
+void applyWebSettings() {
+    if (!webReqPending) return;
+    portENTER_CRITICAL(&webReqMux);
+    int32_t r[WS_COUNT];
+    memcpy(r, webReq, sizeof(r));
+    webReqPending = false;
+    portEXIT_CRITICAL(&webReqMux);
+
+    // Leave pot edit mode so the pot doesn't immediately overwrite the new value
+    potEditMode = false;
+    wpmEditStep = 0;
+
+    if (r[WS_WPM]   >= 0) applyCharWPM(r[WS_WPM]);
+    if (r[WS_FARN]  >= 0) applyFarnWPM(r[WS_FARN]);
+    if (r[WS_FREQ]  >= 0) localFreq = constrain(r[WS_FREQ], FREQ_MIN, FREQ_MAX);
+    if (r[WS_DELAY] >= 0) {
+        headCopyDelayMs = (r[WS_DELAY] > DELAY_MAX_MS) ? DELAY_AO_MODE
+                                                       : ((uint32_t)r[WS_DELAY] / 100) * 100;
+    }
+    if (r[WS_VOL]   >= 0) sidetone_duty = constrain(r[WS_VOL], 5, 200);
+    if (r[WS_GAP]   >= 0) wordGapDits = (r[WS_GAP] == 0) ? 0 : constrain(r[WS_GAP], 4, GAP_MAX);
+    if (r[WS_KMODE] >= 0 && r[WS_KMODE] < KEYER_MODE_COUNT) keyerMode = r[WS_KMODE];
+    if (r[WS_REV]   >= 0) paddleReverse = (r[WS_REV] != 0);
+
+    saveSettings();
+    drawRXLine();   // AO indicator may have changed
+    drawStatusArea();
+    drawHeader();
+}
+
 // ── File playback helpers ─────────────────────────────────────────────────────
 void stopFilePlayback() {
     filePlayActive = false;
@@ -1473,16 +1540,41 @@ input[type=file]{width:100%;padding:8px;margin:8px 0;border-radius:4px;border:1p
 button{background:#07e0a0;color:#000;border:none;padding:10px 20px;border-radius:4px;cursor:pointer;font-weight:bold;margin:4px}
 button.del{background:#e74c3c;color:#fff}
 button.play{background:#3498db;color:#fff}
-button.swap{background:#f39c12;color:#000;width:100%}
 .file-item{display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid #333}
 .file-name{font-size:1.05em;color:#eee;flex:1;margin-right:8px;word-break:break-all}
 .status{color:#07e0a0;padding:10px;text-align:center}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.tile{background:#0f3460;border-radius:8px;padding:10px;border-top:3px solid var(--c);text-align:center}
+.tile.wide{grid-column:span 2}
+.tl{font-size:.75em;letter-spacing:1px;color:var(--c);font-weight:bold}
+.tv{font-size:1.5em;font-weight:bold;margin:6px 0;white-space:nowrap}
+.tb{display:flex;gap:6px}
+.tb button{flex:1;margin:0;padding:8px 0;font-size:1.2em;background:#1a1a2e;color:#eee;border:1px solid #444}
+.tb button.on{background:var(--c);color:#000;border-color:var(--c)}
+.note{font-size:.75em;color:#888;margin-top:4px}
 </style></head><body>
 <h1>&#9742; K0WLY CW Keyer</h1>
 <div class="card">
-<h2>&#8651; Dit/Dah Swap</h2>
-<button class="swap" onclick="swapDitDah()">&#8651; Swap Dit/Dah</button>
-<div id="swapStatus" class="status"></div>
+<h2>&#9881; Settings</h2>
+<div class="grid">
+<div class="tile" style="--c:#ffe000"><div class="tl">CHAR SPEED</div><div class="tv" id="v_wpm">-</div>
+<div class="tb"><button onclick="step('wpm',-1)">&minus;</button><button onclick="step('wpm',1)">+</button></div></div>
+<div class="tile" style="--c:#ffe000"><div class="tl">FARNSWORTH</div><div class="tv" id="v_farn">-</div>
+<div class="tb"><button onclick="step('farn',-1)">&minus;</button><button onclick="step('farn',1)">+</button></div></div>
+<div class="tile" style="--c:#00e0ff"><div class="tl">FREQUENCY</div><div class="tv" id="v_freq">-</div>
+<div class="tb"><button onclick="step('freq',-1)">&minus;</button><button onclick="step('freq',1)">+</button></div></div>
+<div class="tile" style="--c:#ff00ff"><div class="tl">VOLUME</div><div class="tv" id="v_vol">-</div>
+<div class="tb"><button onclick="step('vol',-1)">&minus;</button><button onclick="step('vol',1)">+</button></div></div>
+<div class="tile" style="--c:#ff9000"><div class="tl">HEAD COPY DELAY</div><div class="tv" id="v_delay">-</div>
+<div class="tb"><button onclick="step('delay',-1)">&minus;</button><button onclick="step('delay',1)">+</button></div></div>
+<div class="tile" style="--c:#00e000"><div class="tl">WORD GAP</div><div class="tv" id="v_gap">-</div>
+<div class="tb"><button onclick="step('gap',-1)">&minus;</button><button onclick="step('gap',1)">+</button></div></div>
+<div class="tile wide" style="--c:#07e0a0"><div class="tl">KEYER MODE</div>
+<div class="tb" style="margin-top:8px"><button id="k0" onclick="setv('kmode',0)">Iambic A</button><button id="k1" onclick="setv('kmode',1)">Iambic B</button><button id="k2" onclick="setv('kmode',2)">Ultimatic</button></div>
+<div class="note" id="v_sk"></div></div>
+<div class="tile wide" style="--c:#f39c12"><div class="tl">PADDLES</div>
+<div class="tb" style="margin-top:8px"><button id="r0" onclick="setv('rev',0)">Normal</button><button id="r1" onclick="setv('rev',1)">Swapped</button></div></div>
+</div>
 </div>
 <div class="card">
 <h2>&#9654; Practice Files</h2>
@@ -1499,11 +1591,54 @@ button.swap{background:#f39c12;color:#000;width:100%}
 <div id="uploadStatus" class="status"></div>
 </div>
 <script>
-function swapDitDah(){
-  fetch('/swap').then(r=>r.text()).then(t=>{
-    document.getElementById('swapStatus').innerText=t;
-    setTimeout(()=>document.getElementById('swapStatus').innerText='',2000);
-  });
+// Settings tiles. Changes show at once and are sent after a short pause so
+// repeated taps make one request (and one NVS write) instead of many.
+let S=null,pend={},sendT=null,busyUntil=0;
+const GAPS=[0,4,5,6,7,8,9];
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+function step(k,d){
+  if(!S)return;
+  if(k=='wpm'){const off=S.farn>=S.wpm;S.wpm=clamp(S.wpm+d,5,40);if(off||S.farn>S.wpm)S.farn=S.wpm;}
+  else if(k=='farn'){S.farn=clamp(S.farn+d,4,S.wpm);}
+  else if(k=='freq'){S.freq=clamp(Math.round((S.freq+d*10)/10)*10,400,900);}
+  else if(k=='vol'){S.vol=clamp((Math.floor(S.vol/2)+d)*2,5,200);}   // 1% = duty 2
+  else if(k=='delay'){
+    if(S.delay<0){if(d<0)S.delay=3000;}
+    else if(d>0&&S.delay>=3000)S.delay=-1;
+    else S.delay=clamp(S.delay+d*100,0,3000);
+  }
+  else if(k=='gap'){S.gap=GAPS[clamp(GAPS.indexOf(S.gap)+d,0,GAPS.length-1)];}
+  queue(k);
+}
+function setv(k,v){if(!S)return;S[k]=v;queue(k);}
+function queue(k){
+  if(k=='wpm')pend.farn=1;
+  pend[k]=1;render();busyUntil=Date.now()+1500;
+  clearTimeout(sendT);sendT=setTimeout(sendSet,300);
+}
+function sendSet(){
+  const q=Object.keys(pend).map(k=>k+'='+(k=='delay'&&S.delay<0?9999:S[k])).join('&');
+  pend={};
+  fetch('/set?'+q).then(()=>{busyUntil=0;setTimeout(loadSettings,300);});
+}
+function render(){
+  const t=(id,v)=>document.getElementById(id).innerText=v;
+  t('v_wpm',S.wpm+' WPM');
+  t('v_farn',S.farn>=S.wpm?'OFF':S.farn+' WPM');
+  t('v_freq',S.freq+' Hz');
+  t('v_vol',Math.floor(S.vol*100/200)+'%');
+  t('v_delay',S.delay<0?'Audio Only':(S.delay/1000).toFixed(1)+' s');
+  t('v_gap',S.gap?S.gap+' dits':'OFF');
+  for(let i=0;i<3;i++)document.getElementById('k'+i).className=S.kmode==i?'on':'';
+  for(let i=0;i<2;i++)document.getElementById('r'+i).className=S.rev==i?'on':'';
+  t('v_sk',S.sk?'Straight key switch is ON — paddle mode applies when switched off':'');
+}
+function loadSettings(){
+  if(Date.now()<busyUntil||Object.keys(pend).length)return;
+  fetch('/settings').then(r=>r.json()).then(j=>{
+    if(Date.now()<busyUntil||Object.keys(pend).length)return;
+    S=j;render();
+  }).catch(()=>{});
 }
 function uploadFile(){
   const f=document.getElementById('fileInput').files[0];
@@ -1549,6 +1684,8 @@ function pausePlay(){
   });
 }
 loadFiles();
+loadSettings();
+setInterval(loadSettings,2000);   // pick up changes made with the knob and buttons
 </script>
 </body></html>
 )rawliteral";
@@ -1562,6 +1699,43 @@ void setupWebServer() {
     webServer.on("/swap", HTTP_GET, [](AsyncWebServerRequest *req) {
         paddleReverse = !paddleReverse;
         req->send(200, "text/plain", paddleReverse ? "Dit/Dah SWAPPED" : "Dit/Dah NORMAL");
+    });
+
+    // Current settings as JSON (polled by the settings tiles)
+    webServer.on("/settings", HTTP_GET, [](AsyncWebServerRequest *req) {
+        char json[200];
+        bool ao = (headCopyDelayMs == DELAY_AO_MODE);
+        snprintf(json, sizeof(json),
+            "{\"wpm\":%lu,\"farn\":%lu,\"freq\":%lu,\"delay\":%ld,\"vol\":%u,"
+            "\"gap\":%u,\"kmode\":%u,\"rev\":%d,\"sk\":%d}",
+            charWPM(), farnWPM(), localFreq, ao ? -1L : (long)headCopyDelayMs,
+            sidetone_duty, wordGapDits, keyerMode, paddleReverse ? 1 : 0, straightKey ? 1 : 0);
+        req->send(200, "application/json", json);
+    });
+
+    // Change settings: /set?wpm=20&farn=10&freq=700&delay=500&vol=128&gap=5&kmode=1&rev=0
+    // delay above 3000 = Audio Only; farn at or above wpm = Farnsworth off; vol is duty 5-200
+    webServer.on("/set", HTTP_GET, [](AsyncWebServerRequest *req) {
+        int32_t vals[WS_COUNT];
+        bool any = false;
+        for (int i = 0; i < WS_COUNT; i++) {
+            vals[i] = -1;
+            if (req->hasParam(webReqKeys[i])) {
+                vals[i] = req->getParam(webReqKeys[i])->value().toInt();
+                if (vals[i] < 0) vals[i] = 0;
+                any = true;
+            }
+        }
+        if (!any) { req->send(400, "text/plain", "No settings"); return; }
+        portENTER_CRITICAL(&webReqMux);
+        // Merge with any request loop() hasn't applied yet
+        for (int i = 0; i < WS_COUNT; i++) {
+            if (vals[i] >= 0)        webReq[i] = vals[i];
+            else if (!webReqPending) webReq[i] = -1;
+        }
+        webReqPending = true;
+        portEXIT_CRITICAL(&webReqMux);
+        req->send(200, "text/plain", "OK");
     });
 
     webServer.on("/pause", HTTP_GET, [](AsyncWebServerRequest *req) {
@@ -1937,6 +2111,9 @@ void loop() {
 
         lastModeBtn = cur;
     }
+
+    // ── Settings changed from the web page ───────────────────────────────────
+    applyWebSettings();
 
     // ── Pot reading (only active in edit mode) ────────────────────────────────
     if (potEditMode && now - lastPotUpdate >= 100) {
