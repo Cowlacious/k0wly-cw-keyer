@@ -1353,6 +1353,13 @@ static int32_t        webReq[WS_COUNT];
 static volatile bool  webReqPending = false;
 static portMUX_TYPE   webReqMux     = portMUX_INITIALIZER_UNLOCKED;
 
+// Parse a /set value: plain decimal digits only, otherwise -1 ("not requested")
+static int32_t parseSetVal(const String &s) {
+    if (s.length() == 0 || s.length() > 9) return -1;   // 9 digits always fits int32
+    for (size_t i = 0; i < s.length(); i++) if (!isDigit(s[i])) return -1;
+    return s.toInt();
+}
+
 static void applyCharWPM(uint32_t wpm) {
     if (wpm < WPM_MIN) wpm = WPM_MIN;
     if (wpm > WPM_MAX) wpm = WPM_MAX;
@@ -1802,12 +1809,11 @@ void setupWebServer() {
         for (int i = 0; i < WS_COUNT; i++) {
             vals[i] = -1;
             if (req->hasParam(webReqKeys[i])) {
-                vals[i] = req->getParam(webReqKeys[i])->value().toInt();
-                if (vals[i] < 0) vals[i] = 0;
-                any = true;
+                vals[i] = parseSetVal(req->getParam(webReqKeys[i])->value());
+                if (vals[i] >= 0) any = true;
             }
         }
-        if (!any) { req->send(400, "text/plain", "No settings"); return; }
+        if (!any) { req->send(400, "text/plain", "No valid settings"); return; }
         portENTER_CRITICAL(&webReqMux);
         // Merge with any request loop() hasn't applied yet
         for (int i = 0; i < WS_COUNT; i++) {
