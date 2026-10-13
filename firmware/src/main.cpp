@@ -1658,7 +1658,7 @@ button.play{background:#3498db;color:#fff}
 <div class="tb" style="margin-top:8px"><button id="k0" onclick="setv('kmode',0)">Iambic A</button><button id="k1" onclick="setv('kmode',1)">Iambic B</button><button id="k2" onclick="setv('kmode',2)">Ultimatic</button></div>
 <div class="note" id="v_sk"></div></div>
 <div class="tile wide" style="--c:#f39c12"><div class="tl">PADDLES</div>
-<div class="tb" style="margin-top:8px"><button id="r0" onclick="setv('rev',0)">Normal</button><button id="r1" onclick="setv('rev',1)">Swapped</button></div></div>
+<div class="tb" style="margin-top:8px"><button id="r0" onclick="setv('rev',0)">Dit-Dah</button><button id="r1" onclick="setv('rev',1)">Dah-Dit</button></div></div>
 </div>
 </div>
 <div class="card">
