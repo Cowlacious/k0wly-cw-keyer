@@ -1448,25 +1448,103 @@ void startFilePlayback(String name) {
 }
 
 // ── LittleFS file management ──────────────────────────────────────────────────
-void scanFiles() {
-    fileCount = 0;
-    filesAvailable = false;
+// Fill list with up to MAX_FILES .txt names; returns the count
+static int listTxtFiles(char list[][MAX_FILENAME]) {
+    int count = 0;
     File root = LittleFS.open("/");
-    if (!root || !root.isDirectory()) return;
+    if (!root || !root.isDirectory()) return 0;
     File f = root.openNextFile();
-    while (f && fileCount < MAX_FILES) {
+    while (f && count < MAX_FILES) {
         if (!f.isDirectory()) {
             String name = String(f.name());
             if (name.endsWith(".txt") || name.endsWith(".TXT")) {
-                strncpy(fileList[fileCount], f.name(), MAX_FILENAME - 1);
-                fileList[fileCount][MAX_FILENAME - 1] = '\0';
-                fileCount++;
-                filesAvailable = true;
+                strncpy(list[count], f.name(), MAX_FILENAME - 1);
+                list[count][MAX_FILENAME - 1] = '\0';
+                count++;
             }
         }
         f = root.openNextFile();
     }
+    return count;
+}
+
+void scanFiles() {
+    fileCount = listTxtFiles(fileList);
+    filesAvailable = (fileCount > 0);
     if (currentFileIdx >= fileCount) currentFileIdx = 0;
+}
+
+// Pause or resume file playback
+void togglePausePlayback() {
+    if (!(filePlayActive || fileElemHead != fileElemTail || filePlayPaused)) return;
+    filePlayPaused = !filePlayPaused;
+    if (!filePlayPaused) return;
+    // Save current file path before closing
+    String fname = playFile ? String(playFile.path()) : "/" + String(fileList[currentFileIdx]);
+    fileElemHead = 0;
+    fileElemTail = 0;
+    fileKeying   = false;
+    fileInGap    = false;
+    fileElemGap  = false;
+    ledcWrite(LEDC_CHANNEL_LOCAL, 0);
+    digitalWrite(PIN_KEY_OUT, LOW);
+    digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
+    digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
+    // Reopen file at played position for clean resume
+    if (playFile) playFile.close();
+    playFile = LittleFS.open(fname, "r");
+    if (playFile) playFile.seek(filePlayedPos);
+    fileLastWasSpace = false;
+    filePlayActive = true;
+}
+
+// ── Web file commands ─────────────────────────────────────────────────────────
+// Web handlers run on the AsyncTCP task, while loop() reads the playing file,
+// the file list and the frame buffer. Handlers only queue a command here and
+// loop() carries it out, so that state is only ever touched from one task.
+enum { WFC_PLAY, WFC_STOP, WFC_PAUSE, WFC_DELETE, WFC_RESCAN };
+typedef struct {
+    uint8_t cmd;
+    char    name[64];   // "/file.txt" for PLAY and DELETE
+} WebFileCmd;
+static QueueHandle_t webFileQueue = nullptr;
+
+static bool queueWebFileCmd(uint8_t cmd, const String &name = String()) {
+    WebFileCmd c = {};
+    c.cmd = cmd;
+    strlcpy(c.name, name.c_str(), sizeof(c.name));
+    return webFileQueue && xQueueSend(webFileQueue, &c, 0) == pdTRUE;
+}
+
+void applyWebFileCmds() {
+    WebFileCmd c;
+    while (webFileQueue && xQueueReceive(webFileQueue, &c, 0) == pdTRUE) {
+        switch (c.cmd) {
+            case WFC_PLAY:
+                scanFiles();
+                for (int i = 0; i < fileCount; i++) {
+                    if (strcmp(fileList[i], c.name + 1) == 0) { currentFileIdx = i; break; }
+                }
+                startFilePlayback(c.name);
+                break;
+            case WFC_STOP:
+                stopFilePlayback();
+                break;
+            case WFC_PAUSE:
+                togglePausePlayback();
+                break;
+            case WFC_DELETE:
+                if (playFile && strcmp(playFile.path(), c.name) == 0) stopFilePlayback();
+                if (!LittleFS.remove(c.name)) Serial.printf("Delete failed: %s\n", c.name);
+                scanFiles();
+                drawStatusArea();
+                break;
+            case WFC_RESCAN:
+                scanFiles();
+                drawStatusArea();
+                break;
+        }
+    }
 }
 
 // Queue a character's Morse elements for playback
@@ -1674,7 +1752,7 @@ function playFile(name){
 function deleteFile(name){
   const label=name.replace(/\.txt$/i,'').replace(/_/g,' ');
   if(!confirm('Delete "'+label+'"?'))return;
-  fetch('/delete?name='+encodeURIComponent(name)).then(r=>r.text()).then(t=>{loadFiles();});
+  fetch('/delete?name='+encodeURIComponent(name)).then(()=>setTimeout(loadFiles,300));
 }
 function stopPlay(){fetch('/stop');}
 function pausePlay(){
@@ -1691,6 +1769,8 @@ setInterval(loadSettings,2000);   // pick up changes made with the knob and butt
 )rawliteral";
 
 void setupWebServer() {
+    webFileQueue = xQueueCreate(8, sizeof(WebFileCmd));
+
     webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
         req->send(200, "text/html", WEB_PAGE);
     });
@@ -1738,44 +1818,24 @@ void setupWebServer() {
         req->send(200, "text/plain", "OK");
     });
 
+    // The handlers below only queue the work for loop() (see applyWebFileCmds).
+    // Replies are worked out from a read of the current state.
     webServer.on("/pause", HTTP_GET, [](AsyncWebServerRequest *req) {
-        if (filePlayActive || fileElemHead != fileElemTail || filePlayPaused) {
-            filePlayPaused = !filePlayPaused;
-            if (filePlayPaused) {
-                // Save current file name before closing
-                String fname = playFile ? String(playFile.name()) : String(fileList[currentFileIdx]);
-                fileElemHead = 0;
-                fileElemTail = 0;
-                fileKeying   = false;
-                fileInGap    = false;
-                fileElemGap  = false;
-                ledcWrite(LEDC_CHANNEL_LOCAL, 0);
-                digitalWrite(PIN_KEY_OUT, LOW);
-                digitalWrite(PIN_IAMBIC_DIT, IAMBIC_INACTIVE);
-                digitalWrite(PIN_IAMBIC_DAH, IAMBIC_INACTIVE);
-                // Reopen file at played position for clean resume
-                if (playFile) playFile.close();
-                if (!fname.startsWith("/")) fname = "/" + fname;
-                playFile = LittleFS.open(fname, "r");
-                if (playFile) playFile.seek(filePlayedPos);
-                fileLastWasSpace = false;
-                filePlayActive = true;
-                req->send(200, "text/plain", "PAUSED");
-            } else {
-                req->send(200, "text/plain", "RESUMED");
-            }
-        } else {
-            req->send(200, "text/plain", "Nothing playing");
+        if (!(filePlayActive || fileElemHead != fileElemTail || filePlayPaused)) {
+            req->send(200, "text/plain", "Nothing playing"); return;
         }
+        if (!queueWebFileCmd(WFC_PAUSE)) { req->send(503, "text/plain", "Busy"); return; }
+        req->send(200, "text/plain", filePlayPaused ? "RESUMED" : "PAUSED");
     });
 
-    // List files as JSON
+    // List files as JSON (reads the directory itself; fileList belongs to loop())
     webServer.on("/files", HTTP_GET, [](AsyncWebServerRequest *req) {
-        scanFiles();
+        static char list[MAX_FILES][MAX_FILENAME];   // AsyncTCP runs one handler at a time
+        int count = listTxtFiles(list);
         String json = "[";
-        for (int i = 0; i < fileCount; i++) {
+        for (int i = 0; i < count; i++) {
             if (i) json += ",";
-            json += "\"" + String(fileList[i]) + "\"";
+            json += "\"" + String(list[i]) + "\"";
         }
         json += "]";
         req->send(200, "application/json", json);
@@ -1787,39 +1847,31 @@ void setupWebServer() {
         String name = req->getParam("name")->value();
         if (!name.startsWith("/")) name = "/" + name;
         if (!LittleFS.exists(name)) { req->send(404, "text/plain", "File not found"); return; }
-        for (int i = 0; i < fileCount; i++) {
-            if (String(fileList[i]) == name || String(fileList[i]) == name.substring(1)) {
-                currentFileIdx = i; break;
-            }
-        }
-        startFilePlayback(name);
+        if (!queueWebFileCmd(WFC_PLAY, name)) { req->send(503, "text/plain", "Busy"); return; }
         req->send(200, "text/plain", "Playing: " + name);
     });
 
     // Stop playback
     webServer.on("/stop", HTTP_GET, [](AsyncWebServerRequest *req) {
-        stopFilePlayback();
+        if (!queueWebFileCmd(WFC_STOP)) { req->send(503, "text/plain", "Busy"); return; }
         req->send(200, "text/plain", "Stopped");
     });
 
-    // Delete a file
+    // Delete a file (loop() stops playback first if it is the file playing)
     webServer.on("/delete", HTTP_GET, [](AsyncWebServerRequest *req) {
         if (!req->hasParam("name")) { req->send(400, "text/plain", "No filename"); return; }
         String name = req->getParam("name")->value();
         if (!name.startsWith("/")) name = "/" + name;
-        if (LittleFS.remove(name)) {
-            scanFiles();
-            req->send(200, "text/plain", "Deleted: " + name);
-        } else {
-            req->send(500, "text/plain", "Delete failed");
-        }
+        if (!LittleFS.exists(name)) { req->send(404, "text/plain", "File not found"); return; }
+        if (!queueWebFileCmd(WFC_DELETE, name)) { req->send(503, "text/plain", "Busy"); return; }
+        req->send(200, "text/plain", "Deleted: " + name);
     });
 
     // Handle file upload
     webServer.on("/upload", HTTP_POST,
         [](AsyncWebServerRequest *req) {
             req->send(200, "text/plain", "Upload complete");
-            scanFiles();
+            queueWebFileCmd(WFC_RESCAN);
         },
         [](AsyncWebServerRequest *req, String filename, size_t index, uint8_t *data, size_t len, bool final) {
             static File uploadFile;
@@ -2112,8 +2164,9 @@ void loop() {
         lastModeBtn = cur;
     }
 
-    // ── Settings changed from the web page ───────────────────────────────────
+    // ── Settings and file commands from the web page ─────────────────────────
     applyWebSettings();
+    applyWebFileCmds();
 
     // ── Pot reading (only active in edit mode) ────────────────────────────────
     if (potEditMode && now - lastPotUpdate >= 100) {
