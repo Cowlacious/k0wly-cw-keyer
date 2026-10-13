@@ -1676,7 +1676,8 @@ const GAPS=[0,4,5,6,7,8,9];
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 function step(k,d){
   if(!S)return;
-  if(k=='wpm'){const off=S.farn>=S.wpm;S.wpm=clamp(S.wpm+d,5,40);if(off||S.farn>S.wpm)S.farn=S.wpm;}
+  // 39 WPM has the same 30 ms dit as 40, so the device can't hold it: skip over it
+  if(k=='wpm'){const off=S.farn>=S.wpm;let n=S.wpm+d;if(n==39)n=d>0?40:38;S.wpm=clamp(n,5,40);if(off||S.farn>S.wpm)S.farn=S.wpm;}
   else if(k=='farn'){S.farn=clamp(S.farn+d,4,S.wpm);}
   else if(k=='freq'){S.freq=clamp(Math.round((S.freq+d*10)/10)*10,400,900);}
   else if(k=='vol'){S.vol=clamp((Math.floor(S.vol/2)+d)*2,5,200);}   // 1% = duty 2
