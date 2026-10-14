@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.6.0] — 2026 — Settings on the Web Page
+
+Adds settings tiles to the web page, contributed by UtahDave (W7OM) in
+[PR #12](https://github.com/Cowlacious/k0wly-cw-keyer/pull/12). Tested on a
+LilyGO unit by K0WLY (character speed stepping through 38, 39 and 40 on the
+knob and buttons, file play, pause, stop, switch files and delete from the web page).
+
+### Added
+- **Settings tiles on the web page** — change character speed, Farnsworth,
+  frequency, volume, delay, word gap, keyer mode and dit/dah swap from a phone
+  browser at 192.168.4.1. The page picks up changes made with the knob and
+  buttons every 2 seconds.
+
+### Changed
+- Web page character speed skips 39 WPM, because 39 and 40 WPM both round to a
+  30 ms dit and the device cannot hold 39 that way. Stepping goes 38 ↔ 40. The
+  knob and buttons still reach 39.
+- Web file commands (play, pause, stop, delete, upload rescan) are now queued
+  and carried out by the main loop, so the playing file and file list are only
+  touched from one task.
+- `/set` ignores values that are not plain numbers.
+- Web page paddle buttons are labeled Dit-Dah and Dah-Dit.
+- Manuals still describe the v1.5.0 web page; updating them is pending.
+
+---
+
 ## [1.5.0] — 2026 — Ultimatic Keyer Mode
 
 Adds an Ultimatic mode, contributed by UtahDave (W7OM) in
