@@ -28,7 +28,8 @@ knob and buttons, file play, pause, stop, switch files and delete from the web p
   touched from one task.
 - `/set` ignores values that are not plain numbers.
 - Web page paddle buttons are labeled Dit-Dah and Dah-Dit.
-- Manuals still describe the v1.5.0 web page; updating them is pending.
+- **Manuals** — User Guide and Manual updated to v1.6.0 with the web settings
+  tiles; manual PDF regenerated.
 
 ---
 
